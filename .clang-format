@@ -1,0 +1,5 @@
+BasedOnStyle: Google
+ColumnLimit: 0
+AccessModifierOffset: -1
+IndentWidth: 2
+NamespaceIndentation: All
