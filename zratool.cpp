@@ -2,10 +2,9 @@
 #include <fstream>
 #include <iostream>
 
-#include "zra.hpp"
+#include "include/zra.hpp"
 
-template <typename compressType, typename decompressType>
-void compressionBenchmark(compressType compressFunction, decompressType decompressFunction, const std::string& name, size_t originalSize) {
+void compressionBenchmark(const std::function<zra::Buffer()>& compressFunction, const std::function<zra::Buffer(const zra::BufferView&)>& decompressFunction, const std::string& name, size_t originalSize) {
   auto start = std::chrono::high_resolution_clock::now();
   auto compressed = compressFunction();
   auto end = std::chrono::high_resolution_clock::now();
@@ -48,16 +47,34 @@ zra::Buffer ReadFile(const std::string& name) {
   std::ifstream iStream(name, std::ios::ate | std::ios::binary | std::ios::in);
   iStream.unsetf(std::ios::skipws);
 
-  auto size = iStream.tellg();
+  ssize_t size = iStream.tellg();
   iStream.seekg(0);
 
-  if (size == 0)
-    throw std::runtime_error("The specified file is empty");
+  if (size <= 0)
+    throw std::runtime_error("The specified file doesn't exist or is empty");
 
   input.resize(size);
   iStream.read(reinterpret_cast<char*>(input.data()), input.size());
 
   return input;
+}
+
+struct IFile {
+  std::ifstream stream;
+  ssize_t size;
+};
+
+IFile GetIFile(const std::string& name) {
+  std::ifstream iStream(name, std::ios::ate | std::ios::binary | std::ios::in);
+  iStream.unsetf(std::ios::skipws);
+
+  ssize_t size = iStream.tellg();
+  iStream.seekg(0);
+
+  if (size <= 0)
+    throw std::runtime_error("The specified file doesn't exist or is empty");
+
+  return IFile{std::move(iStream), size};
 }
 
 int main(int argc, char* argv[]) {
@@ -66,27 +83,15 @@ int main(int argc, char* argv[]) {
     std::exit(0);
   }
 
-  int compressionLevel{0};
-
-  if (argc > 3)
-    compressionLevel = std::atoi(argv[3]);
-
   std::string fileName{};
   size_t fileSize{};
 
   std::string_view type(argv[1]);
   if (type == "c") {
-    zra::Buffer input = ReadFile(argv[2]);
-    zra::Buffer output = zra::compressNonRaBuffer(input, compressionLevel);
-
-    fileName = std::string(argv[2]) + ".c";
-    fileSize = output.size();
-
-    std::ofstream oStream(fileName, std::ios::binary | std::ios::out | std::ios::trunc);
-    oStream.write(reinterpret_cast<char*>(output.data()), output.size());
-  } else if (type == "rac") {
+    int compressionLevel{0};
+    if (argc > 3)
+      compressionLevel = std::atoi(argv[3]);
     zra::u16 frameSize = 16384;
-
     if (argc > 4)
       frameSize = std::atoi(argv[4]);
 
@@ -99,24 +104,19 @@ int main(int argc, char* argv[]) {
     std::ofstream oStream(fileName, std::ios::binary | std::ios::out | std::ios::trunc);
     oStream.write(reinterpret_cast<char*>(output.data()), output.size());
   } else if (type == "sc") {
+    int compressionLevel{0};
+    if (argc > 3)
+      compressionLevel = std::atoi(argv[3]);
     zra::u16 frameSize = 16384;
-
     if (argc > 4)
       frameSize = std::atoi(argv[4]);
 
-    std::ifstream iStream(argv[2], std::ios::ate | std::ios::binary | std::ios::in);
-    iStream.unsetf(std::ios::skipws);
-
-    size_t size = iStream.tellg();
-    if (size == 0)
-      throw std::runtime_error("The specified file is empty");
-
-    iStream.seekg(0);
+    auto iFile = GetIFile(argv[2]);
 
     fileName = std::string(argv[2]) + ".sc";
     std::ofstream oStream(fileName, std::ios::binary | std::ios::out | std::ios::trunc);
 
-    zra::Compressor compressor(size, compressionLevel, frameSize);
+    zra::Compressor compressor(iFile.size, compressionLevel, frameSize);
 
     size_t bufferSize = 10'000'000;
     if (argc > 5)
@@ -124,14 +124,14 @@ int main(int argc, char* argv[]) {
 
     zra::Buffer input(bufferSize - (bufferSize % frameSize) + frameSize);
 
-    std::cout << std::dec << "0% (0/" << size << " bytes)" << std::flush;
+    std::cout << std::dec << "0% (0/" << iFile.size << " bytes)" << std::flush;
 
     oStream.seekp(compressor.header.size());
 
     zra::Buffer data;
     size_t offset{}, compressedSize{};
-    while (offset < size) {
-      auto read = iStream.read(reinterpret_cast<char*>(input.data()), input.size()).gcount();
+    while (offset < iFile.size) {
+      auto read = iFile.stream.read(reinterpret_cast<char*>(input.data()), input.size()).gcount();
       input.resize(read);
       offset += read;
 
@@ -140,7 +140,7 @@ int main(int argc, char* argv[]) {
 
       oStream.write(reinterpret_cast<char*>(data.data()), data.size());
 
-      std::cout << "\r" << std::dec << (offset * 100) / size << "% (" << offset << "/" << size << " bytes)" << std::flush;
+      std::cout << "\r" << std::dec << (offset * 100) / iFile.size << "% (" << offset << "/" << iFile.size << " bytes)" << std::flush;
     }
 
     oStream.seekp(0);
@@ -151,15 +151,6 @@ int main(int argc, char* argv[]) {
     std::cout << std::endl;
   } else if (type == "d") {
     zra::Buffer input = ReadFile(argv[2]);
-    zra::Buffer output = zra::decompressNonRaBuffer(input);
-
-    fileName = std::string(argv[2]) + ".d";
-    fileSize = output.size();
-
-    std::ofstream oStream(fileName, std::ios::binary | std::ios::out | std::ios::trunc);
-    oStream.write(reinterpret_cast<char*>(output.data()), output.size());
-  } else if (type == "rad") {
-    zra::Buffer input = ReadFile(argv[2]);
     zra::Buffer output = zra::DecompressBuffer(input);
 
     fileName = std::string(argv[2]) + ".rad";
@@ -168,22 +159,15 @@ int main(int argc, char* argv[]) {
     std::ofstream oStream(fileName, std::ios::binary | std::ios::out | std::ios::trunc);
     oStream.write(reinterpret_cast<char*>(output.data()), output.size());
   } else if (type == "sd") {
-    std::ifstream iStream(argv[2], std::ios::ate | std::ios::binary | std::ios::in);
-    iStream.unsetf(std::ios::skipws);
-
-    size_t size = iStream.tellg();
-    if (size == 0)
-      throw std::runtime_error("The specified file is empty");
-
-    iStream.seekg(0);
+    auto iFile = GetIFile(argv[2]);
 
     zra::Buffer header(sizeof(zra::Header));
-    iStream.read(reinterpret_cast<char*>(header.data()), header.size());
+    iFile.stream.read(reinterpret_cast<char*>(header.data()), header.size());
     header.resize(reinterpret_cast<zra::Header*>(header.data())->Size());
-    iStream.read(reinterpret_cast<char*>(header.data() + sizeof(zra::Header)), header.size() - sizeof(zra::Header));
-    size -= header.size();
+    iFile.stream.read(reinterpret_cast<char*>(header.data() + sizeof(zra::Header)), header.size() - sizeof(zra::Header));
+    auto size = iFile.size - header.size();
 
-    zra::Decompressor decompressor(header);
+    zra::FullDecompressor decompressor(header);
 
     fileName = std::string(argv[2]) + ".sd";
     std::ofstream oStream(fileName, std::ios::binary | std::ios::out | std::ios::trunc);
@@ -199,7 +183,7 @@ int main(int argc, char* argv[]) {
     zra::Buffer data;
     size_t offset{}, uncompressedSize{};
     while (offset < size) {
-      auto read = iStream.read(reinterpret_cast<char*>(input.data()), input.size()).gcount();
+      auto read = iFile.stream.read(reinterpret_cast<char*>(input.data()), input.size()).gcount();
       input.resize(read);
       offset += read;
 
@@ -215,18 +199,69 @@ int main(int argc, char* argv[]) {
 
     std::cout << std::endl;
   } else if (type == "b") {
+    int compressionLevel{0};
+    if (argc > 3)
+      compressionLevel = std::atoi(argv[3]);
+    zra::u16 frameSize = 16384;
+    if (argc > 4)
+      frameSize = std::atoi(argv[4]);
+    size_t bufferSize = 10'000'000;
+    if (argc > 5)
+      bufferSize = std::atoi(argv[5]) * 1'000'000;
+
     zra::Buffer input = ReadFile(argv[2]);
 
-    compressionBenchmark([input, compressionLevel] { return zra::compressNonRaBuffer(input, compressionLevel); }, zra::decompressNonRaBuffer, "Non-RA", input.size());
-    compressionBenchmark([input, compressionLevel] { return zra::CompressBuffer(input, compressionLevel); }, zra::DecompressBuffer, "RA", input.size());
+    compressionBenchmark([input, compressionLevel, frameSize] { return zra::CompressBuffer(input, compressionLevel, frameSize); }, [](const zra::BufferView& view) { return zra::DecompressBuffer(view); }, "In-Memory", input.size());
+    compressionBenchmark([compressionLevel, frameSize, bufferSize, argv] {
+      auto iFile = GetIFile(argv[2]);
+
+      zra::Compressor compressor(iFile.size, compressionLevel, frameSize);
+
+      zra::Buffer input(bufferSize - (bufferSize % frameSize) + frameSize);
+
+      zra::Buffer data, output(compressor.header.size());
+      size_t offset{};
+      while (offset < iFile.size) {
+        auto read = iFile.stream.read(reinterpret_cast<char*>(input.data()), input.size()).gcount();
+        input.resize(read);
+        offset += read;
+
+        compressor.Compress(input, data);
+        output.insert(output.end(), data.begin(), data.end());
+      }
+
+      memcpy(output.data(), compressor.header.data(), compressor.header.size());
+
+      return output; }, [bufferSize, argv](const zra::BufferView& view) {
+
+      zra::Buffer header(view.data, view.data + reinterpret_cast<zra::Header*>(view.data)->Size());
+      auto size = view.size - header.size();
+
+      zra::FullDecompressor decompressor(header);
+
+      zra::Buffer input(bufferSize);
+
+      zra::Buffer data, output;
+      size_t offset{header.size()};
+      while (offset < size) {
+        auto read = std::min(view.size - offset, input.size());
+        memcpy(input.data(), view.data + offset, read);
+        input.resize(read);
+        offset += read;
+
+        decompressor.Decompress(input, data);
+        output.insert(output.end(), data.begin(), data.end());
+      }
+
+      return output; }, "Streaming", input.size());
 
     size_t offset{0x1000};
     size_t raSize{0x100000};
 
-    if (argc > 4)
+    if (argc > 6)
       offset = std::atoi(argv[4]);
 
-    if (argc > 5)
+    if (argc > 7)
       raSize = std::atoi(argv[5]);
 
     auto buffer = zra::CompressBuffer(input, compressionLevel);

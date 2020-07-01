@@ -1,7 +1,2 @@
-/cmake-build-debug/
-/cmake-build-release/
-/cmake-build-relwithdebinfo/
-/ZraTool.exe
-/data.sc.sd
-/data.sc
-/data
+cmake*
+.idea
