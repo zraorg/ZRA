@@ -5,7 +5,15 @@
 #include <string>
 #include <vector>
 
+#ifdef ZRA_EXPORT_HEADER
 #include "zra_export.h"
+#else
+#ifdef WIN32
+#define ZRA_EXPORT __declspec(dllimport)
+#else
+#define ZRA_EXPORT
+#endif
+#endif
 
 namespace zra {
   using u64 = uint64_t;         //!< Unsigned 64-bit integer
@@ -39,7 +47,7 @@ namespace zra {
     /**
      * @param buffer The Buffer object that this BufferView should represent
      */
-    constexpr inline BufferView(const Buffer& buffer) : data(const_cast<u8*>(buffer.data())), size(buffer.size()) {}
+    inline BufferView(const Buffer& buffer) : data(const_cast<u8*>(buffer.data())), size(buffer.size()) {}
   };
 
   /**
@@ -59,8 +67,8 @@ namespace zra {
    * @brief This class is used to deliver an exception when it occurs
    */
   struct ZRA_EXPORT Exception : std::exception {
-    ErrorCode code; //!< The error code associated with this exception
-    std::string_view message; //!< An optional extra message for the exception
+    ErrorCode code;            //!< The error code associated with this exception
+    std::string_view message;  //!< An optional extra message for the exception
 
     Exception(ErrorCode code, const std::string_view& message = {});
 
@@ -83,13 +91,15 @@ namespace zra {
 
   constexpr u64 maxCompressedSize = 1ULL << 40;  //!< The maximum size of a compressed ZSTD file
 
+#pragma pack(push,1)
+
   /**
    * @brief This structure holds a single entry in the seek table
    */
   struct Entry {
     u64 offset : 40;  //!< The offset of the frame in the compressed segment
     u32 size;         //!< The size of the compressed frame
-  } __attribute__((packed));
+  };
 
   /**
    * @brief This structure holds the header of a ZRA file
@@ -100,6 +110,10 @@ namespace zra {
     u64 inputSize{};            //!< The size of the entire input, this is used for bounds-checking and buffer pre-allocation
     u32 tableSize{};            //!< The amount of entries present in the seek table
     u32 frameSize{};            //!< The size of frames except for the final frame
+
+    inline Header() = default;
+
+    inline Header(u64 inputSize, u32 tableSize, u32 frameSize) : inputSize(inputSize), tableSize(tableSize), frameSize(frameSize) {}
 
     /**
      * @return The size of the entire header including the seek table
@@ -116,6 +130,8 @@ namespace zra {
     }
   };
 
+#pragma pack(pop)
+
   /**
    * @brief This compresses the supplied buffer with specified parameters in-memory into a BufferView
    * @param input A BufferView with the uncompressed source data
@@ -124,7 +140,7 @@ namespace zra {
    * @param frameSize The size of a single frame which can be decompressed individually (This does not always equate to a single ZSTD frame)
    * @return If positive then it is the size of the data read, otherwise it's the required minimum size of the output buffer
    */
-  ZRA_EXPORT ssize_t CompressBuffer(const BufferView& input, const BufferView& output, i8 compressionLevel = 0, u32 frameSize = 16384);
+  ZRA_EXPORT ptrdiff_t CompressBuffer(const BufferView& input, const BufferView& output, i8 compressionLevel = 0, u32 frameSize = 16384);
 
   /**
    * @brief This compresses the supplied buffer with specified parameters in-memory into a Buffer
@@ -142,7 +158,7 @@ namespace zra {
    * @return If positive then it is the size of the data read, otherwise it's the required minimum size of the output buffer
    * @throws std::runtime_error if the supplied buffer is invalid
    */
-  ZRA_EXPORT ssize_t DecompressBuffer(const BufferView& input, const BufferView& output);
+  ZRA_EXPORT ptrdiff_t DecompressBuffer(const BufferView& input, const BufferView& output);
 
   /**
    * @brief This decompresses the supplied compressed buffer in-memory into a Buffer
@@ -161,7 +177,7 @@ namespace zra {
    * @return If positive then it is the size of the data read (should be equal to size parameter), otherwise it's the required minimum size of the output buffer (this may be larger than the size parameter)
    * @throws std::runtime_error if the supplied buffer is invalid
    */
-  ZRA_EXPORT ssize_t DecompressRA(const BufferView& input, const BufferView& output, size_t offset, size_t size);
+  ZRA_EXPORT ptrdiff_t DecompressRA(const BufferView& input, const BufferView& output, size_t offset, size_t size);
 
   /**
    * @brief This decompresses a specific region of the supplied compressed buffer in-memory into a Buffer
@@ -194,7 +210,7 @@ namespace zra {
      * @param compressionLevel The level of ZSTD compression to use
      * @param frameSize The size of a single frame which can be decompressed individually
      */
-    Compressor(size_t size, i8 compressionLevel = 0, u64 frameSize = 16384);
+    Compressor(size_t size, i8 compressionLevel = 0, u32 frameSize = 16384);
 
     /**
      * @brief This compresses a partial stream of contiguous data into a BufferView
@@ -202,7 +218,7 @@ namespace zra {
      * @param output The output BufferView which can be reused from previous iterations, compressed data will be written in here (Can be default to retrieve size)
      * @return If positive then it is the size of the data read, otherwise it's the required minimum size of the output buffer
      */
-    ssize_t Compress(const BufferView& input, const BufferView& output);
+    ptrdiff_t Compress(const BufferView& input, const BufferView& output);
 
     /**
      * @brief This compresses a partial stream of contiguous data into a Buffer
@@ -243,7 +259,7 @@ namespace zra {
      * @param output The output BufferView which can be reused from previous calls, uncompressed data will be written in here (Can be empty to retrieve size)
      * @return If positive then it is the size of the data read, otherwise it's the minimum size of the output buffer
      */
-    ssize_t Decompress(size_t offset, size_t size, const BufferView& output = {});
+    ptrdiff_t Decompress(size_t offset, size_t size, const BufferView& output = {});
 
     /**
      * @brief This decompresses data from a slice of corresponding to the original uncompressed file into a Buffer

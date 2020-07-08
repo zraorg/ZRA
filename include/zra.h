@@ -1,11 +1,21 @@
 #ifndef ZRA_ZRA_H
 #define ZRA_ZRA_H
 
+#ifdef ZRA_EXPORT_HEADER
 #include "zra_export.h"
+#else
+#ifdef WIN32
+#define ZRA_EXPORT __declspec(dllimport)
+#else
+#define ZRA_EXPORT
+#endif
+#endif
 
 #ifndef __cplusplus
+#include <stddef.h>
 #include <stdint.h>
 #else
+#include <cstddef>
 #include <cstdint>
 
 extern "C" {
@@ -46,7 +56,7 @@ ZRA_EXPORT const char* ZraGetErrorString(ZraErrorCode code);
  * @return If positive, it's the size of the data read or if outputBuffer is nullptr then the minimum capacity of the output buffer
  *         If negative, it's a ZraErrorCode describing the result of the operation
  */
-ZRA_EXPORT ssize_t ZraCompressBuffer(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity, int8_t compressionLevel = 0, uint64_t frameSize = 16384);
+ZRA_EXPORT ptrdiff_t  ZraCompressBuffer(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity, int8_t compressionLevel = 0, uint64_t frameSize = 16384);
 
 /**
  * @brief This decompresses the entirety of the supplied compressed buffer in-memory into the specified buffer
@@ -57,7 +67,7 @@ ZRA_EXPORT ssize_t ZraCompressBuffer(void* inputBuffer, size_t inputSize, void* 
  * @return If positive, it's the size of the data read or if outputBuffer is nullptr then the minimum capacity of the output buffer
  *         If negative, it's a ZraErrorCode describing the result of the operation
  */
-ZRA_EXPORT ssize_t ZraDecompressBuffer(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity);
+ZRA_EXPORT ptrdiff_t  ZraDecompressBuffer(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity);
 
 /**
  * @brief This decompresses a specific region of the supplied compressed buffer in-memory into the specified buffer
@@ -70,7 +80,7 @@ ZRA_EXPORT ssize_t ZraDecompressBuffer(void* inputBuffer, size_t inputSize, void
  * @return If positive, it's the size of the data read or if outputBuffer is nullptr then the minimum capacity of the output buffer
  *         If negative, it's a ZraErrorCode describing the result of the operation
  */
-ZRA_EXPORT ssize_t ZraDecompressRA(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity, size_t offset, size_t size);
+ZRA_EXPORT ptrdiff_t  ZraDecompressRA(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity, size_t offset, size_t size);
 
 struct ZraCompressor;
 
@@ -100,7 +110,7 @@ ZRA_EXPORT void ZraDeleteCompressor(ZraCompressor* compressor);
  * @return If positive, it's the size of the data read or if outputBuffer is nullptr then the minimum capacity of the output buffer
  *         If negative, it's a ZraErrorCode describing the result of the operation
  */
-ZRA_EXPORT ssize_t ZraCompressWithCompressor(ZraCompressor* compressor, void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity);
+ZRA_EXPORT ptrdiff_t  ZraCompressWithCompressor(ZraCompressor* compressor, void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity);
 
 /**
  * @brief This writes the header of the ZRA file into the specified buffer, this should only be read in after compression has been completed
@@ -110,7 +120,7 @@ ZRA_EXPORT ssize_t ZraCompressWithCompressor(ZraCompressor* compressor, void* in
  * @return If positive, it's the size of the entire header
  *         If negative, it's a ZraErrorCode describing the result of the operation
  */
-ZRA_EXPORT ssize_t ZraGetHeaderWithCompressor(ZraCompressor* compressor, void* outputBuffer, size_t outputCapacity);
+ZRA_EXPORT ptrdiff_t  ZraGetHeaderWithCompressor(ZraCompressor* compressor, void* outputBuffer, size_t outputCapacity);
 
 /**
  * @brief This is used to retrieve the size of the entire header buffer
@@ -119,7 +129,7 @@ ZRA_EXPORT ssize_t ZraGetHeaderWithCompressor(ZraCompressor* compressor, void* o
  * @return If positive, it's the size of the entire header or if headerBuffer is nullptr the minimum data required to deduce the full size of the header
  *         If negative, it's a ZraErrorCode describing the result of the operation
  */
-ZRA_EXPORT ssize_t ZraGetHeaderSize(void* headerBuffer, size_t headerSize);
+ZRA_EXPORT ptrdiff_t  ZraGetHeaderSize(void* headerBuffer, size_t headerSize);
 
 /**
  * @brief This is used to retrieve the size of the uncompressed buffer
@@ -128,7 +138,7 @@ ZRA_EXPORT ssize_t ZraGetHeaderSize(void* headerBuffer, size_t headerSize);
  * @return If positive, it's the size of the uncompressed buffer or if headerBuffer is nullptr the minimum data required to deduce the size of the uncompressed buffer
  *         If negative, it's a ZraErrorCode describing the result of the operation
  */
-ZRA_EXPORT ssize_t ZraGetUncompressedSize(void* headerBuffer, size_t headerSize);
+ZRA_EXPORT ptrdiff_t  ZraGetUncompressedSize(void* headerBuffer, size_t headerSize);
 
 struct ZraDecompressor;
 
@@ -159,7 +169,7 @@ ZRA_EXPORT void ZraDeleteDecompressor(ZraDecompressor* decompressor);
  * @return If positive, it's the size of the data read or if outputBuffer is nullptr then the minimum capacity of the output buffer
  *         If negative, it's a ZraErrorCode describing the result of the operation
  */
-ZRA_EXPORT ssize_t ZraDecompressWithDecompressor(ZraDecompressor* decompressor, size_t offset, size_t size, void* outputBuffer, size_t outputCapacity);
+ZRA_EXPORT ptrdiff_t ZraDecompressWithDecompressor(ZraDecompressor* decompressor, size_t offset, size_t size, void* outputBuffer, size_t outputCapacity);
 
 #ifdef __cplusplus
 }

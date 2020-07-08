@@ -1,6 +1,8 @@
 #include <chrono>
+#include <cstring>
 #include <fstream>
 #include <iostream>
+#include <algorithm>
 
 #include "include/zra.hpp"
 
@@ -50,7 +52,7 @@ zra::Buffer ReadFile(const std::string& name) {
   std::ifstream iStream(name, std::ios::ate | std::ios::binary | std::ios::in);
   iStream.unsetf(std::ios::skipws);
 
-  ssize_t size = iStream.tellg();
+  ptrdiff_t size = iStream.tellg();
   iStream.seekg(0);
 
   if (size <= 0)
@@ -64,14 +66,14 @@ zra::Buffer ReadFile(const std::string& name) {
 
 struct IFile {
   std::ifstream stream;
-  ssize_t size;
+  ptrdiff_t size;
 };
 
 IFile GetIFile(const std::string& name) {
   std::ifstream iStream(name, std::ios::ate | std::ios::binary | std::ios::in);
   iStream.unsetf(std::ios::skipws);
 
-  ssize_t size = iStream.tellg();
+  ptrdiff_t size = iStream.tellg();
   iStream.seekg(0);
 
   if (size <= 0)
@@ -233,7 +235,7 @@ int main(int argc, char* argv[]) {
         output.insert(output.end(), data.begin(), data.end());
       }
 
-      memcpy(output.data(), compressor.header.data(), compressor.header.size());
+      std::memcpy(output.data(), compressor.header.data(), compressor.header.size());
 
       return output; }, [bufferSize, argv](const zra::BufferView& view) {
 
@@ -248,7 +250,7 @@ int main(int argc, char* argv[]) {
       size_t offset{header.size()};
       while (offset < size) {
         auto read = std::min(view.size - offset, input.size());
-        memcpy(input.data(), view.data + offset, read);
+        std::memcpy(input.data(), view.data + offset, read);
         input.resize(read);
         offset += read;
 
@@ -272,7 +274,7 @@ int main(int argc, char* argv[]) {
 
     zra::Buffer header(buffer.data(), buffer.data() + reinterpret_cast<zra::Header*>(buffer.data())->Size());
     zra::Decompressor raDecompressor(header, [&buffer, &header](size_t off, size_t sz, zra::BufferView view) {
-      memcpy(view.data, buffer.data() + header.size() + off, sz);
+      std::memcpy(view.data, buffer.data() + header.size() + off, sz);
     });
     randomAccessBenchmark([&raDecompressor](zra::u64 offset, size_t size) { zra::Buffer output; return raDecompressor.Decompress(offset, size, output); }, offset, raSize, "Streaming");
   }
