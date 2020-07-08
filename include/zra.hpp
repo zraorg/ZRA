@@ -55,14 +55,24 @@ namespace zra {
     InputFrameSizeMismatch = -6,  //!< The input size is not divisble by the frame size and it isn't the final frame
   };
 
+  /**
+   * @brief This class is used to deliver an exception when it occurs
+   */
   struct ZRA_EXPORT Exception : std::exception {
-    ErrorCode code;
-    std::string_view message;
+    ErrorCode code; //!< The error code associated with this exception
+    std::string_view message; //!< An optional extra message for the exception
 
     Exception(ErrorCode code, const std::string_view& message = {});
 
+    /**
+     * @param code The error code to describe
+     * @return A string describing the supplied error code
+     */
     static std::string_view GetExceptionString(ErrorCode code);
 
+    /**
+     * @return A string describing the contents of this exception
+     */
     const char* what() const noexcept override;
   };
 
@@ -78,7 +88,7 @@ namespace zra {
    */
   struct Entry {
     u64 offset : 40;  //!< The offset of the frame in the compressed segment
-    u16 size;         //!< The size of the compressed frame
+    u32 size;         //!< The size of the compressed frame
   } __attribute__((packed));
 
   /**
@@ -89,7 +99,7 @@ namespace zra {
     u16 version{GetVersion()};  //!< The version of ZRA it was compressed with
     u64 inputSize{};            //!< The size of the entire input, this is used for bounds-checking and buffer pre-allocation
     u32 tableSize{};            //!< The amount of entries present in the seek table
-    u16 frameSize{};            //!< The size of frames except for the final frame
+    u32 frameSize{};            //!< The size of frames except for the final frame
 
     /**
      * @return The size of the entire header including the seek table
@@ -114,7 +124,7 @@ namespace zra {
    * @param frameSize The size of a single frame which can be decompressed individually (This does not always equate to a single ZSTD frame)
    * @return If positive then it is the size of the data read, otherwise it's the required minimum size of the output buffer
    */
-  ZRA_EXPORT ssize_t CompressBuffer(const BufferView& input, const BufferView& output, i8 compressionLevel = 0, u16 frameSize = 16384);
+  ZRA_EXPORT ssize_t CompressBuffer(const BufferView& input, const BufferView& output, i8 compressionLevel = 0, u32 frameSize = 16384);
 
   /**
    * @brief This compresses the supplied buffer with specified parameters in-memory into a Buffer
@@ -123,7 +133,7 @@ namespace zra {
    * @param frameSize The size of a single frame which can be decompressed individually (This does not always equate to a single ZSTD frame)
    * @return A Buffer with the compressed contents of the input buffer
    */
-  ZRA_EXPORT Buffer CompressBuffer(const BufferView& buffer, i8 compressionLevel = 0, u16 frameSize = 16384);
+  ZRA_EXPORT Buffer CompressBuffer(const BufferView& buffer, i8 compressionLevel = 0, u32 frameSize = 16384);
 
   /**
    * @brief This decompresses the supplied compressed buffer in-memory into a BufferView
@@ -171,9 +181,10 @@ namespace zra {
   class ZRA_EXPORT Compressor {
    private:
     std::shared_ptr<ZCCtx> ctx;  //!< A shared pointer to the incomplete ZCCtx class
-    u16 frameSize;               //!< The size of a single compressed frame
+    u32 frameSize;               //!< The size of a single compressed frame
     u32 tableSize;               //!< The size of the frame table in entries
     size_t entryOffset;          //!< The offset of the current frame entry in the table
+    size_t outputOffset{};       //!< The offset of the output file
 
    public:
     Buffer header;  //!< A Buffer containing the header of the file (Will only be "complete" after everything has been compressed)
@@ -183,7 +194,7 @@ namespace zra {
      * @param compressionLevel The level of ZSTD compression to use
      * @param frameSize The size of a single frame which can be decompressed individually
      */
-    Compressor(size_t size, i8 compressionLevel = 0, u16 frameSize = 16384);
+    Compressor(size_t size, i8 compressionLevel = 0, u64 frameSize = 16384);
 
     /**
      * @brief This compresses a partial stream of contiguous data into a BufferView
@@ -210,8 +221,8 @@ namespace zra {
    private:
     std::shared_ptr<ZDCtx> ctx;                                    //!< A shared pointer to the incomplete ZDCtx class
     Buffer header;                                                 //!< A Buffer containing the header of the file
-    size_t frameSize;                                              //!< The size of a single frame (Except the last frame, which can be less than this)
-    size_t inputSize;                                              //!< The size of the entire input data, this is used for bounds-checking
+    u32 frameSize{};                                               //!< The size of a single frame (Except the last frame, which can be less than this)
+    size_t inputSize{};                                            //!< The size of the entire input data, this is used for bounds-checking
     Buffer cache;                                                  //!< A Buffer to read compressed data from the file into, it is reused to prevent constant reallocation
     size_t maxCacheSize;                                           //!< The maximum size of the cache, if the uncompressed segment read goes above this then it'll be read into it's own vector
     std::function<void(size_t, size_t, BufferView)> readFunction;  //!< This function is used to read in data from the compressed file
@@ -223,7 +234,7 @@ namespace zra {
      * @param cacheSize The maximum size of the cache, if the uncompressed segment read goes above this then it'll be read into it's own vector
      * @throws std::runtime_error if the supplied header is invalid
      */
-    Decompressor(Buffer header, std::function<void(size_t offset, size_t size, BufferView buffer)> readFunction, size_t maxCacheSize = 1024 * 1024 * 20);
+    Decompressor(const Buffer& header, const std::function<void(size_t, size_t, BufferView)>& readFunction, size_t maxCacheSize = 1024 * 1024 * 20);
 
     /**
      * @brief This decompresses data from a slice of corresponding to the original uncompressed file into a BufferView
@@ -251,7 +262,7 @@ namespace zra {
     std::shared_ptr<ZDCtx> ctx;  //!< A shared pointer to the incomplete ZDCtx class
     Buffer header;               //!< A Buffer containing the header of the file
     Buffer frame;                //!< A Buffer containing a partial frame from decompressing
-    size_t frameSize;            //!< The size of a single frame (Except the last frame, which can be less than this)
+    u32 frameSize;               //!< The size of a single frame (Except the last frame, which can be less than this)
     size_t entryOffset;          //!< The offset of the current frame entry in the table
 
    public:

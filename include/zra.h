@@ -46,7 +46,7 @@ ZRA_EXPORT const char* ZraGetErrorString(ZraErrorCode code);
  * @return If positive, it's the size of the data read or if outputBuffer is nullptr then the minimum capacity of the output buffer
  *         If negative, it's a ZraErrorCode describing the result of the operation
  */
-ZRA_EXPORT ssize_t ZraCompressBuffer(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity, int8_t compressionLevel = 0, uint16_t frameSize = 16384);
+ZRA_EXPORT ssize_t ZraCompressBuffer(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity, int8_t compressionLevel = 0, uint64_t frameSize = 16384);
 
 /**
  * @brief This decompresses the entirety of the supplied compressed buffer in-memory into the specified buffer
@@ -82,7 +82,7 @@ struct ZraCompressor;
  * @param frameSize The size of a single frame which can be decompressed individually
  * @return A ZraErrorCode with the result from the operation
  */
-ZRA_EXPORT ZraErrorCode ZraCreateCompressor(ZraCompressor** compressor, size_t size, int8_t compressionLevel = 0, uint16_t frameSize = 16384);
+ZRA_EXPORT ZraErrorCode ZraCreateCompressor(ZraCompressor** compressor, size_t size, int8_t compressionLevel = 0, uint64_t frameSize = 16384);
 
 /**
  * @brief Deletes a ZraCompressor object
@@ -121,6 +121,15 @@ ZRA_EXPORT ssize_t ZraGetHeaderWithCompressor(ZraCompressor* compressor, void* o
  */
 ZRA_EXPORT ssize_t ZraGetHeaderSize(void* headerBuffer, size_t headerSize);
 
+/**
+ * @brief This is used to retrieve the size of the uncompressed buffer
+ * @param headerBuffer A pointer to the buffer containing the header (Can be nullptr to retrieve size)
+ * @param headerSize The size of the buffer containing the header
+ * @return If positive, it's the size of the uncompressed buffer or if headerBuffer is nullptr the minimum data required to deduce the size of the uncompressed buffer
+ *         If negative, it's a ZraErrorCode describing the result of the operation
+ */
+ZRA_EXPORT ssize_t ZraGetUncompressedSize(void* headerBuffer, size_t headerSize);
+
 struct ZraDecompressor;
 
 /**
@@ -131,7 +140,6 @@ struct ZraDecompressor;
  * @param readFunction This function is used to read data from the compressed file while supplying the offset (Not including the header) and the size, the output should be into the buffer
  * @param cacheSize The maximum size of the file cache, if the uncompressed segment read goes above this then it'll be read into it's own buffer
  * @return A ZraErrorCode with the result from the operation
- * @note This is equivalent to zra::RADecompressor not zra::Decompressor in the C-API due to complexities involved in translating the latter to the C-API
  */
 ZRA_EXPORT ZraErrorCode ZraCreateDecompressor(ZraDecompressor** decompressor, void* header, size_t headerSize, void(readFunction)(size_t offset, size_t size, void* buffer), size_t maxCacheSize = 1024 * 1024 * 20);
 

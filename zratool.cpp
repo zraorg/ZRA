@@ -17,15 +17,18 @@ void compressionBenchmark(const std::function<zra::Buffer()>& compressFunction, 
 
   constexpr auto bytesInMb = 1024 * 1024;
 
+  std::string speedCompressing = (std::chrono::duration_cast<std::chrono::milliseconds>(compressTime).count() != 0) ? std::to_string(originalSize / std::chrono::duration_cast<std::chrono::seconds>(std::chrono::duration_cast<std::chrono::milliseconds>(compressTime) * bytesInMb).count()) : "Inf";
+  std::string speedDecompressing = (std::chrono::duration_cast<std::chrono::milliseconds>(decompressTime).count() != 0) ? std::to_string(originalSize / std::chrono::duration_cast<std::chrono::seconds>(std::chrono::duration_cast<std::chrono::milliseconds>(decompressTime) * bytesInMb).count()) : "Inf";
+
   std::cout << std::dec << name + " Compression Summary:\n"
             << "Size:\n* Compressed: " << (compressed.size() / bytesInMb) << " MB (" << compressed.size() << " bytes)\n* Uncompressed: " << (originalSize / bytesInMb) << " MB (" << originalSize << " bytes)\n"
             << "Time:\n* Compressing: " << std::chrono::duration_cast<std::chrono::milliseconds>(compressTime).count() << " ms\n* Decompressing: " << std::chrono::duration_cast<std::chrono::milliseconds>(decompressTime).count() << " ms\n"
-            << "Speed:\n* Compressing: " << (originalSize / std::chrono::duration_cast<std::chrono::seconds>(std::chrono::duration_cast<std::chrono::milliseconds>(compressTime) * bytesInMb).count()) << " MB/s\n* Decompressing: " << (originalSize / std::chrono::duration_cast<std::chrono::seconds>(std::chrono::duration_cast<std::chrono::milliseconds>(decompressTime) * bytesInMb).count()) << " MB/s"
+            << "Speed:\n* Compressing: " << speedCompressing << " MB/s\n* Decompressing: " << speedDecompressing << " MB/s"
             << std::endl;
 }
 
 template <typename raType>
-void randomAccessBenchmark(raType raFunction, size_t offset, size_t size) {
+void randomAccessBenchmark(raType raFunction, size_t offset, size_t size, const std::string& name) {
   auto start = std::chrono::high_resolution_clock::now();
   raFunction(offset, size);
   auto end = std::chrono::high_resolution_clock::now();
@@ -35,7 +38,7 @@ void randomAccessBenchmark(raType raFunction, size_t offset, size_t size) {
 
   std::string speed = (std::chrono::duration_cast<std::chrono::nanoseconds>(accessTime).count() != 0) ? std::to_string(size / std::chrono::duration_cast<std::chrono::seconds>(std::chrono::duration_cast<std::chrono::nanoseconds>(accessTime) * bytesInMb).count()) : "Inf";
 
-  std::cout << std::dec << "RA Benchmark:\n"
+  std::cout << std::dec << name + " RA Summary:\n"
             << "Offset: " << offset << ", Size: " << size << " bytes\n"
             << "Time: " << std::chrono::duration_cast<std::chrono::nanoseconds>(accessTime).count() << " ns\n"
             << "Speed: " << speed << " MB/s"
@@ -256,7 +259,7 @@ int main(int argc, char* argv[]) {
       return output; }, "Streaming", input.size());
 
     size_t offset{0x1000};
-    size_t raSize{0x100000};
+    size_t raSize{0x10000};
 
     if (argc > 6)
       offset = std::atoi(argv[4]);
@@ -265,7 +268,13 @@ int main(int argc, char* argv[]) {
       raSize = std::atoi(argv[5]);
 
     auto buffer = zra::CompressBuffer(input, compressionLevel);
-    randomAccessBenchmark([buffer](zra::u64 offset, size_t size) { return zra::DecompressRA(buffer, offset, size); }, offset, raSize);
+    randomAccessBenchmark([buffer](zra::u64 offset, size_t size) { return zra::DecompressRA(buffer, offset, size); }, offset, raSize, "In-Memory");
+
+    zra::Buffer header(buffer.data(), buffer.data() + reinterpret_cast<zra::Header*>(buffer.data())->Size());
+    zra::Decompressor raDecompressor(header, [&buffer, &header](size_t off, size_t sz, zra::BufferView view) {
+      memcpy(view.data, buffer.data() + header.size() + off, sz);
+    });
+    randomAccessBenchmark([&raDecompressor](zra::u64 offset, size_t size) { zra::Buffer output; return raDecompressor.Decompress(offset, size, output); }, offset, raSize, "Streaming");
   }
 
   if (fileSize || !fileName.empty())
