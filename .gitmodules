@@ -1,3 +1,6 @@
 [submodule "submodule/zstd"]
 	path = submodule/zstd
 	url = https://github.com/facebook/zstd.git
+[submodule "submodule/CRCpp"]
+	path = submodule/CRCpp
+	url = https://github.com/d-bahr/CRCpp

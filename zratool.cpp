@@ -1,8 +1,8 @@
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <fstream>
 #include <iostream>
-#include <algorithm>
 
 #include "include/zra.hpp"
 
@@ -84,7 +84,13 @@ IFile GetIFile(const std::string& name) {
 
 int main(int argc, char* argv[]) {
   if (argc < 3) {
-    std::cout << argv[0] << "{mode} {file}" << std::endl;
+    std::cout << argv[0] << " {mode} {file}\n"
+                            "c {file} {compression level = 3} - Non-RA Compression (Output will be the same as the file argument with \".c\" appended to the end)\n"
+                            "d {file} - Non-RA Decompression (Output will be the same as the file argument with \".d\" appended to the end) \n"
+                            "rac {file} {compression level = 3} {frame size = 16384} - RA Compression (Output will be the same as the file argument with \".rac\" appended to the end)\n"
+                            "rad {file} - RA Decompression (Output will be the same as the file argument with \".rad\" appended to the end) \n"
+                            "b {file} {compression level = 3} {offset = 0x1000} {size = 0x10000} - Benchmark"
+              << std::endl;
     std::exit(0);
   }
 
@@ -131,7 +137,7 @@ int main(int argc, char* argv[]) {
 
     std::cout << std::dec << "0% (0/" << iFile.size << " bytes)" << std::flush;
 
-    oStream.seekp(compressor.header.size());
+    oStream.seekp(compressor.GetHeaderSize());
 
     zra::Buffer data;
     size_t offset{}, compressedSize{};
@@ -149,7 +155,8 @@ int main(int argc, char* argv[]) {
     }
 
     oStream.seekp(0);
-    oStream.write(reinterpret_cast<char*>(compressor.header.data()), compressor.header.size());
+    auto header = compressor.GetHeader();
+    oStream.write(reinterpret_cast<char*>(header.data()), header.size());
 
     fileSize = compressedSize;
 
@@ -224,7 +231,7 @@ int main(int argc, char* argv[]) {
 
       zra::Buffer input(bufferSize - (bufferSize % frameSize) + frameSize);
 
-      zra::Buffer data, output(compressor.header.size());
+      zra::Buffer data, output(compressor.GetHeaderSize());
       size_t offset{};
       while (offset < iFile.size) {
         auto read = iFile.stream.read(reinterpret_cast<char*>(input.data()), input.size()).gcount();
@@ -235,9 +242,10 @@ int main(int argc, char* argv[]) {
         output.insert(output.end(), data.begin(), data.end());
       }
 
-      std::memcpy(output.data(), compressor.header.data(), compressor.header.size());
+      auto header = compressor.GetHeader();
+      std::memcpy(output.data(), header.data(), header.size());
 
-      return output; }, [bufferSize, argv](const zra::BufferView& view) {
+      return output; }, [bufferSize](const zra::BufferView& view) {
 
       zra::Buffer header(view.data, view.data + reinterpret_cast<zra::Header*>(view.data)->Size());
       auto size = view.size - header.size();

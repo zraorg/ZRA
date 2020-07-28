@@ -54,23 +54,23 @@ namespace zra {
    * @brief This enumerates all of the possible errors thrown by the application
    */
   enum class ErrorCode {
-    Success = 0,                  //!< The operation was successful
-    ZStdError = -1,               //!< An error was returned by ZStandard
-    HeaderInvalid = -2,           //!< The header in the supplied buffer was invalid
-    OutOfBoundsAccess = -3,       //!< The specified offset and size are past the data contained within the buffer
-    OutputBufferTooSmall = -4,    //!< The output buffer is too small to contain the output (Supply null output buffer to get size)
-    CompressedSizeTooLarge = -5,  //!< The compressed output's size exceeds the maximum limit
-    InputFrameSizeMismatch = -6,  //!< The input size is not divisble by the frame size and it isn't the final frame
+    Success,                 //!< The operation was successful
+    ZStdError,               //!< An error was returned by ZStandard
+    HeaderInvalid,           //!< The header in the supplied buffer was invalid or the header hasn't been fully written
+    OutOfBoundsAccess,       //!< The specified offset and size are past the data contained within the buffer
+    OutputBufferTooSmall,    //!< The output buffer is too small to contain the output (Supply null output buffer to get size)
+    CompressedSizeTooLarge,  //!< The compressed output's size exceeds the maximum limit
+    InputFrameSizeMismatch,  //!< The input size is not divisble by the frame size and it isn't the final frame
   };
 
   /**
    * @brief This class is used to deliver an exception when it occurs
    */
   struct ZRA_EXPORT Exception : std::exception {
-    ErrorCode code;            //!< The error code associated with this exception
-    std::string_view message;  //!< An optional extra message for the exception
+    ErrorCode code;  //!< The error code associated with this exception
+    i32 zstdCode;    //!< The error code issued by ZSTD, if any
 
-    Exception(ErrorCode code, const std::string_view& message = {});
+    Exception(ErrorCode code, i32 zstdCode = {});
 
     /**
      * @param code The error code to describe
@@ -91,7 +91,10 @@ namespace zra {
 
   constexpr u64 maxCompressedSize = 1ULL << 40;  //!< The maximum size of a compressed ZSTD file
 
-#pragma pack(push,1)
+  // clang-format off
+#pragma pack(push, 1)
+#pragma scalar_storage_order little-endian;
+  // clang-format on
 
   /**
    * @brief This structure holds a single entry in the seek table
@@ -103,34 +106,51 @@ namespace zra {
 
   /**
    * @brief This structure holds the header of a ZRA file
+   * @note The members marked with * are immutable across versions
    */
   struct Header {
-    u32 magic{0x3041525A};      //!< The magic for the ZRA format "ZRA0"
-    u16 version{GetVersion()};  //!< The version of ZRA it was compressed with
-    u64 inputSize{};            //!< The size of the entire input, this is used for bounds-checking and buffer pre-allocation
-    u32 tableSize{};            //!< The amount of entries present in the seek table
-    u32 frameSize{};            //!< The size of frames except for the final frame
+    u32 frameId{0x184D2A50};            //!< The frame ID for a ZSTD skippable frame *
+    [[maybe_unused]] u32 headerSize{};  //!< The size of the header after this in bytes *
+    u32 magic{0x3041525A};              //!< The magic for the ZRA format "ZRA0" *
+    u16 version{GetVersion()};          //!< The version of ZRA it was compressed with *
+    u32 hash{};                         //!< The CRC-32 hash of the seek-table
+    u64 inputSize{};                    //!< The size of the entire input, this is used for bounds-checking and buffer pre-allocation
+    u32 tableSize{};                    //!< The amount of entries present in the seek table
+    u32 frameSize{};                    //!< The size of frames except for the final frame
 
     inline Header() = default;
 
-    inline Header(u64 inputSize, u32 tableSize, u32 frameSize) : inputSize(inputSize), tableSize(tableSize), frameSize(frameSize) {}
+    inline Header(u64 inputSize, u32 tableSize, u32 frameSize) : inputSize(inputSize), tableSize(tableSize), frameSize(frameSize) {
+      headerSize = Size() - (offsetof(Header, frameId) + sizeof(frameId));
+    }
 
+   public:
     /**
      * @return The size of the entire header including the seek table
      */
-    size_t Size() const {
+    u32 Size() const {
       return sizeof(Header) + (tableSize * sizeof(Entry));
     }
 
     /**
+     * @param seekTable A pointer to the start of the seektable to hash
      * @return If this Header object is valid or not
      */
-    bool Valid() const {
-      return magic == 0x3041525A && version == GetVersion();
+    bool Valid(u8* seekTable = nullptr) const {
+      return magic == 0x3041525A && version == GetVersion() && seekTable ? hash == CalculateHash(seekTable) : true;
     }
+
+    /**
+     * @param seekTable A pointer to the start of the seektable to hash
+     * @return A CRC-32 hash of the header + the seektable
+     */
+    u32 CalculateHash(const u8* seekTable) const;
   };
 
+  // clang-format off
+#pragma scalar_storage_order default
 #pragma pack(pop)
+  // clang-format on
 
   /**
    * @brief This compresses the supplied buffer with specified parameters in-memory into a BufferView
@@ -138,23 +158,26 @@ namespace zra {
    * @param output A BufferView to write the compressed contents into (Can be empty to retrieve size)
    * @param compressionLevel The ZSTD compression level to compress the buffer with
    * @param frameSize The size of a single frame which can be decompressed individually (This does not always equate to a single ZSTD frame)
+   * @param checksum If ZSTD should add a checksum over all blocks of data that'll be compressed
    * @return If positive then it is the size of the data read, otherwise it's the required minimum size of the output buffer
    */
-  ZRA_EXPORT ptrdiff_t CompressBuffer(const BufferView& input, const BufferView& output, i8 compressionLevel = 0, u32 frameSize = 16384);
+  ZRA_EXPORT ptrdiff_t CompressBuffer(const BufferView& input, const BufferView& output, i8 compressionLevel = 0, u32 frameSize = 16384, bool checksum = false);
 
   /**
    * @brief This compresses the supplied buffer with specified parameters in-memory into a Buffer
    * @param buffer A BufferView with the uncompressed source data
    * @param compressionLevel The ZSTD compression level to compress the buffer with
    * @param frameSize The size of a single frame which can be decompressed individually (This does not always equate to a single ZSTD frame)
+   * @param checksum If ZSTD should add a checksum over all blocks of data that'll be compressed
    * @return A Buffer with the compressed contents of the input buffer
    */
-  ZRA_EXPORT Buffer CompressBuffer(const BufferView& buffer, i8 compressionLevel = 0, u32 frameSize = 16384);
+  ZRA_EXPORT Buffer CompressBuffer(const BufferView& buffer, i8 compressionLevel = 0, u32 frameSize = 16384, bool checksum = false);
 
   /**
    * @brief This decompresses the supplied compressed buffer in-memory into a BufferView
    * @param input A BufferView with the compressed data
    * @param output A BufferView to write the uncompressed contents into (Can be empty to retrieve size)
+   * @param checksum If ZSTD should add a checksum over all blocks of data that'll be compressed
    * @return If positive then it is the size of the data read, otherwise it's the required minimum size of the output buffer
    * @throws std::runtime_error if the supplied buffer is invalid
    */
@@ -163,6 +186,7 @@ namespace zra {
   /**
    * @brief This decompresses the supplied compressed buffer in-memory into a Buffer
    * @param buffer A BufferView with the compressed data
+   * @param checksum If ZSTD should add a checksum over all blocks of data that'll be compressed
    * @return A BufferView with the corresponding decompressed contents
    * @throws std::runtime_error if the supplied buffer is invalid
    */
@@ -174,6 +198,7 @@ namespace zra {
    * @param output A BufferView to write the uncompressed contents into (Can be empty to retrieve size)
    * @param offset The corresponding offset in the uncompressed buffer
    * @param size The amount of bytes to decompress from the offset
+   * @param checksum If ZSTD should add a checksum over all blocks of data that'll be compressed
    * @return If positive then it is the size of the data read (should be equal to size parameter), otherwise it's the required minimum size of the output buffer (this may be larger than the size parameter)
    * @throws std::runtime_error if the supplied buffer is invalid
    */
@@ -184,6 +209,7 @@ namespace zra {
    * @param buffer A BufferView with the compressed data
    * @param offset The corresponding offset in the uncompressed buffer
    * @param size The amount of bytes to decompress from the offset
+   * @param checksum If ZSTD should add a checksum over all blocks of data that'll be compressed
    * @return A Buffer with the corresponding decompressed contents
    * @throws std::runtime_error if the supplied buffer is invalid
    */
@@ -201,16 +227,16 @@ namespace zra {
     u32 tableSize;               //!< The size of the frame table in entries
     size_t entryOffset;          //!< The offset of the current frame entry in the table
     size_t outputOffset{};       //!< The offset of the output file
+    Buffer header;               //!< A Buffer containing the header of the file
 
    public:
-    Buffer header;  //!< A Buffer containing the header of the file (Will only be "complete" after everything has been compressed)
-
     /**
      * @param size The exact size of the overall stream
      * @param compressionLevel The level of ZSTD compression to use
+     * @param checksum If ZSTD should add a checksum over all blocks of data that'll be compressed
      * @param frameSize The size of a single frame which can be decompressed individually
      */
-    Compressor(size_t size, i8 compressionLevel = 0, u32 frameSize = 16384);
+    Compressor(size_t size, i8 compressionLevel = 0, u32 frameSize = 16384, bool checksum = false);
 
     /**
      * @brief This compresses a partial stream of contiguous data into a BufferView
@@ -226,6 +252,17 @@ namespace zra {
      * @param output The output Buffer which can be reused from previous iterations, compressed data will be written in here
      */
     void Compress(const BufferView& input, Buffer& output);
+
+    /**
+     * @return A const-reference to a Buffer containing the entire header (including the seek table)
+     * @throws Exception with ErrorCode::HeaderInvalid, if the header hasn't been fully written yet
+     */
+    const Buffer& GetHeader();
+
+    /**
+     * @return The size of the entire header including the seek table
+     */
+    size_t GetHeaderSize();
   };
 
   class ZDCtx;
@@ -239,9 +276,9 @@ namespace zra {
     Buffer header;                                                 //!< A Buffer containing the header of the file
     u32 frameSize{};                                               //!< The size of a single frame (Except the last frame, which can be less than this)
     size_t inputSize{};                                            //!< The size of the entire input data, this is used for bounds-checking
+    std::function<void(size_t, size_t, BufferView)> readFunction;  //!< This function is used to read in data from the compressed file
     Buffer cache;                                                  //!< A Buffer to read compressed data from the file into, it is reused to prevent constant reallocation
     size_t maxCacheSize;                                           //!< The maximum size of the cache, if the uncompressed segment read goes above this then it'll be read into it's own vector
-    std::function<void(size_t, size_t, BufferView)> readFunction;  //!< This function is used to read in data from the compressed file
 
    public:
     /**
@@ -278,8 +315,8 @@ namespace zra {
     std::shared_ptr<ZDCtx> ctx;  //!< A shared pointer to the incomplete ZDCtx class
     Buffer header;               //!< A Buffer containing the header of the file
     Buffer frame;                //!< A Buffer containing a partial frame from decompressing
-    u32 frameSize;               //!< The size of a single frame (Except the last frame, which can be less than this)
     size_t entryOffset;          //!< The offset of the current frame entry in the table
+    u32 frameSize;               //!< The size of a single frame (Except the last frame, which can be less than this)
 
    public:
     /**

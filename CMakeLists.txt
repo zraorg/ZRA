@@ -9,7 +9,12 @@ endif ()
 
 if (WIN32 AND NOT MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static")
+    set(LINK_OPTIONS "${LINK_OPTIONS} --allow-multiple-definition")
 endif ()
+
+if ((CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU") OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wno-unknown-pragmas")
+endif()
 
 option(OUT_DIRECTORY "If to output to a fixed 'out' directory" FALSE)
 
@@ -38,7 +43,7 @@ include_directories("include")
 add_library(zra SHARED source/zra.cpp)
 target_link_libraries(zra PRIVATE libzstd_static)
 target_compile_definitions(zra PUBLIC ZRA_EXPORT_HEADER=true)
-target_include_directories(zra PUBLIC ${CMAKE_BINARY_DIR}/exports PRIVATE submodule/zstd/lib)
+target_include_directories(zra PUBLIC ${CMAKE_BINARY_DIR}/exports PRIVATE submodule/zstd/lib PRIVATE submodule/CRCpp/inc)
 GENERATE_EXPORT_HEADER(zra EXPORT_FILE_NAME ${CMAKE_BINARY_DIR}/exports/zra_export.h)
 
 option(BUILD_ZRATOOL "If ZraTool is build or not" FALSE)

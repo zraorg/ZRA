@@ -22,16 +22,28 @@ extern "C" {
 #endif
 
 /**
- * @brief This enumerates all of the errors codes provided by an operation
+ * @brief This enumerates all of the errors codes provided by ZRA
  */
 enum ZraErrorCode {
-  Success = 0,                  //!< The operation was successful
-  ZStdError = -1,               //!< An error was returned by ZStandard
-  HeaderInvalid = -2,           //!< The header in the supplied buffer was invalid
-  OutOfBoundsAccess = -3,       //!< The specified offset and size are past the data contained within the buffer
-  OutputBufferTooSmall = -4,    //!< The output buffer is too small to contain the output (Supply null output buffer to get size)
-  CompressedSizeTooLarge = -5,  //!< The compressed output's size exceeds the maximum limit
-  InputFrameSizeMismatch = -6,  //!< The input size is not divisble by the frame size and it isn't the final frame
+  Success,                 //!< The operation was successful
+  ZStdError,               //!< An error was returned by ZStandard
+  HeaderInvalid,           //!< The header in the supplied buffer was invalid or the header hasn't been fully written
+  OutOfBoundsAccess,       //!< The specified offset and size are past the data contained within the buffer
+  OutputBufferTooSmall,    //!< The output buffer is too small to contain the output (Supply null output buffer to get size)
+  CompressedSizeTooLarge,  //!< The compressed output's size exceeds the maximum limit
+  InputFrameSizeMismatch,  //!< The input size is not divisble by the frame size and it isn't the final frame
+};
+
+/**
+ * @brief A structure that represents an error code recieved from a function
+ * @note The structure might be returned in it's negated form from functions
+ */
+union ZraError {
+  struct {
+    int32_t zra;   //!< The error code from ZRA
+    int32_t zstd;  //!< The error code from ZSTD
+  };
+  int64_t raw;  //!< The overall error code when combining both the ZRA and ZSTD error code
 };
 
 /**
@@ -43,7 +55,7 @@ ZRA_EXPORT uint16_t ZraGetVersion();
  * @param code The error code that should be described
  * @return A pointer to a string describing the error corresponding to the code supplied
  */
-ZRA_EXPORT const char* ZraGetErrorString(ZraErrorCode code);
+ZRA_EXPORT const char* ZraGetErrorString(ZraError code);
 
 /**
  * @brief This compresses the supplied buffer with specified parameters in-memory into the specified buffer
@@ -54,9 +66,9 @@ ZRA_EXPORT const char* ZraGetErrorString(ZraErrorCode code);
  * @param compressionLevel The ZSTD compression level to compress the buffer with
  * @param frameSize The size of a single frame which can be decompressed individually (This does not always equate to a single ZSTD frame)
  * @return If positive, it's the size of the data read or if outputBuffer is nullptr then the minimum capacity of the output buffer
- *         If negative, it's a ZraErrorCode describing the result of the operation
+ *         If negative, it's a negated ZraError describing the result of the operation
  */
-ZRA_EXPORT ptrdiff_t  ZraCompressBuffer(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity, int8_t compressionLevel = 0, uint64_t frameSize = 16384);
+ZRA_EXPORT ptrdiff_t ZraCompressBuffer(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity, int8_t compressionLevel = 0, uint64_t frameSize = 16384, bool checksum = false);
 
 /**
  * @brief This decompresses the entirety of the supplied compressed buffer in-memory into the specified buffer
@@ -65,9 +77,9 @@ ZRA_EXPORT ptrdiff_t  ZraCompressBuffer(void* inputBuffer, size_t inputSize, voi
  * @param outputBuffer A pointer to the buffer to write uncompressed data into (Can be nullptr to retrieve size)
  * @param outputCapacity The capacity of the buffer used to write uncompressed data into
  * @return If positive, it's the size of the data read or if outputBuffer is nullptr then the minimum capacity of the output buffer
- *         If negative, it's a ZraErrorCode describing the result of the operation
+ *         If negative, it's a negated ZraError describing the result of the operation
  */
-ZRA_EXPORT ptrdiff_t  ZraDecompressBuffer(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity);
+ZRA_EXPORT ptrdiff_t ZraDecompressBuffer(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity);
 
 /**
  * @brief This decompresses a specific region of the supplied compressed buffer in-memory into the specified buffer
@@ -78,9 +90,9 @@ ZRA_EXPORT ptrdiff_t  ZraDecompressBuffer(void* inputBuffer, size_t inputSize, v
  * @param offset The corresponding offset in the uncompressed buffer
  * @param size The amount of bytes to decompress from the offset
  * @return If positive, it's the size of the data read or if outputBuffer is nullptr then the minimum capacity of the output buffer
- *         If negative, it's a ZraErrorCode describing the result of the operation
+ *         If negative, it's a negated ZraError describing the result of the operation
  */
-ZRA_EXPORT ptrdiff_t  ZraDecompressRA(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity, size_t offset, size_t size);
+ZRA_EXPORT ptrdiff_t ZraDecompressRA(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity, size_t offset, size_t size);
 
 struct ZraCompressor;
 
@@ -90,9 +102,9 @@ struct ZraCompressor;
  * @param size The exact size of the overall stream
  * @param compressionLevel The level of ZSTD compression to use
  * @param frameSize The size of a single frame which can be decompressed individually
- * @return A ZraErrorCode with the result from the operation
+ * @return A ZraError with the result from the operation
  */
-ZRA_EXPORT ZraErrorCode ZraCreateCompressor(ZraCompressor** compressor, size_t size, int8_t compressionLevel = 0, uint64_t frameSize = 16384);
+ZRA_EXPORT ZraError ZraCreateCompressor(ZraCompressor** compressor, size_t size, int8_t compressionLevel = 0, uint64_t frameSize = 16384, bool checksum = false);
 
 /**
  * @brief Deletes a ZraCompressor object
@@ -108,9 +120,9 @@ ZRA_EXPORT void ZraDeleteCompressor(ZraCompressor* compressor);
  * @param outputBuffer A pointer to the buffer to write the corresponding uncompressed data into (Can be nullptr to retrieve size)
  * @param outputCapacity The capacity of the buffer used to write uncompressed data into
  * @return If positive, it's the size of the data read or if outputBuffer is nullptr then the minimum capacity of the output buffer
- *         If negative, it's a ZraErrorCode describing the result of the operation
+ *         If negative, it's a negated ZraError describing the result of the operation
  */
-ZRA_EXPORT ptrdiff_t  ZraCompressWithCompressor(ZraCompressor* compressor, void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity);
+ZRA_EXPORT ptrdiff_t ZraCompressWithCompressor(ZraCompressor* compressor, void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity);
 
 /**
  * @brief This writes the header of the ZRA file into the specified buffer, this should only be read in after compression has been completed
@@ -118,27 +130,27 @@ ZRA_EXPORT ptrdiff_t  ZraCompressWithCompressor(ZraCompressor* compressor, void*
  * @param outputBuffer A pointer to the buffer to write the header into (Can be nullptr to retrieve size)
  * @param outputCapacity The capacity of the buffer used to write header into
  * @return If positive, it's the size of the entire header
- *         If negative, it's a ZraErrorCode describing the result of the operation
+ *         If negative, it's a negated ZraError describing the result of the operation
  */
-ZRA_EXPORT ptrdiff_t  ZraGetHeaderWithCompressor(ZraCompressor* compressor, void* outputBuffer, size_t outputCapacity);
+ZRA_EXPORT ptrdiff_t ZraGetHeaderWithCompressor(ZraCompressor* compressor, void* outputBuffer, size_t outputCapacity);
 
 /**
  * @brief This is used to retrieve the size of the entire header buffer
  * @param headerBuffer A pointer to the buffer containing the header (Can be nullptr to retrieve size)
  * @param headerSize The size of the buffer containing the header
  * @return If positive, it's the size of the entire header or if headerBuffer is nullptr the minimum data required to deduce the full size of the header
- *         If negative, it's a ZraErrorCode describing the result of the operation
+ *         If negative, it's a negated ZraError describing the result of the operation
  */
-ZRA_EXPORT ptrdiff_t  ZraGetHeaderSize(void* headerBuffer, size_t headerSize);
+ZRA_EXPORT ptrdiff_t ZraGetHeaderSize(void* headerBuffer, size_t headerSize);
 
 /**
  * @brief This is used to retrieve the size of the uncompressed buffer
  * @param headerBuffer A pointer to the buffer containing the header (Can be nullptr to retrieve size)
  * @param headerSize The size of the buffer containing the header
  * @return If positive, it's the size of the uncompressed buffer or if headerBuffer is nullptr the minimum data required to deduce the size of the uncompressed buffer
- *         If negative, it's a ZraErrorCode describing the result of the operation
+ *         If negative, it's a negated ZraError describing the result of the operation
  */
-ZRA_EXPORT ptrdiff_t  ZraGetUncompressedSize(void* headerBuffer, size_t headerSize);
+ZRA_EXPORT ptrdiff_t ZraGetUncompressedSize(void* headerBuffer, size_t headerSize);
 
 struct ZraDecompressor;
 
@@ -149,9 +161,9 @@ struct ZraDecompressor;
  * @param headerSize The size of the header, should be equivalent to the value returned by ZraGetHeaderSize
  * @param readFunction This function is used to read data from the compressed file while supplying the offset (Not including the header) and the size, the output should be into the buffer
  * @param cacheSize The maximum size of the file cache, if the uncompressed segment read goes above this then it'll be read into it's own buffer
- * @return A ZraErrorCode with the result from the operation
+ * @return A ZraError with the result from the operation
  */
-ZRA_EXPORT ZraErrorCode ZraCreateDecompressor(ZraDecompressor** decompressor, void* header, size_t headerSize, void(readFunction)(size_t offset, size_t size, void* buffer), size_t maxCacheSize = 1024 * 1024 * 20);
+ZRA_EXPORT ZraError ZraCreateDecompressor(ZraDecompressor** decompressor, void* header, size_t headerSize, void(readFunction)(size_t offset, size_t size, void* buffer), size_t maxCacheSize = 1024 * 1024 * 20);
 
 /**
  * @brief Deletes a ZraDecompressor object
@@ -167,7 +179,7 @@ ZRA_EXPORT void ZraDeleteDecompressor(ZraDecompressor* decompressor);
  * @param outputBuffer A pointer to the buffer to write the decompressed output into (Can be nullptr to retrieve size)
  * @param outputCapacity The capacity of the buffer used to write the decompressed output into
  * @return If positive, it's the size of the data read or if outputBuffer is nullptr then the minimum capacity of the output buffer
- *         If negative, it's a ZraErrorCode describing the result of the operation
+ *         If negative, it's a negated ZraError describing the result of the operation
  */
 ZRA_EXPORT ptrdiff_t ZraDecompressWithDecompressor(ZraDecompressor* decompressor, size_t offset, size_t size, void* outputBuffer, size_t outputCapacity);
 

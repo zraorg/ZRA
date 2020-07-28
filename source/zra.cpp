@@ -1,8 +1,11 @@
 #define ZSTD_STATIC_LINKING_ONLY 1
+#define CRCPP_USE_CPP11 1
 
 #include "zra.h"
 
+#include <CRC.h>
 #include <zstd.h>
+#include <zstd_errors.h>
 
 #include <algorithm>
 #include <cstring>
@@ -14,7 +17,7 @@
 namespace zra {
   template <typename Type>
   constexpr Type ZStdCheck(Type object) {
-    if (ZSTD_isError(object)) throw Exception(ErrorCode::ZStdError, ZSTD_getErrorName(object));
+    if (ZSTD_isError(object)) throw Exception(ErrorCode::ZStdError, ZSTD_getErrorCode(object));
     return object;
   }
 
@@ -39,7 +42,9 @@ namespace zra {
   class ZCCtx : public ZCtx<ZSTD_CCtx, ZSTD_createCCtx, ZSTD_freeCCtx> {};
   class ZDCtx : public ZCtx<ZSTD_DCtx, ZSTD_createDCtx, ZSTD_freeDCtx> {};
 
-  Exception::Exception(ErrorCode code, const std::string_view& message) : code(code), message(message) {}
+  static_assert(ZSTD_error_maxCode < std::numeric_limits<u32>::max(), "ZSTD error codes have exceeded a 32-bit integer");
+
+  Exception::Exception(ErrorCode code, i32 zstdCode) : code(code), zstdCode(zstdCode) {}
 
   std::string_view Exception::GetExceptionString(ErrorCode code) {
     switch (code) {
@@ -65,8 +70,8 @@ namespace zra {
   const char* Exception::what() const noexcept {
     static std::string reason;
     reason = GetExceptionString(code);
-    if (!message.empty())
-      reason = (reason + ": ").append(message);
+    if (code == ErrorCode::ZStdError)
+      reason = (reason + ": ").append(ZSTD_getErrorString(static_cast<ZSTD_ErrorCode>(code)));
     return reason.c_str();
   }
 
@@ -74,7 +79,15 @@ namespace zra {
     return 0;
   }
 
-  ptrdiff_t CompressBuffer(const BufferView& input, const BufferView& output, i8 compressionLevel, u32 frameSize) {
+  u32 Header::CalculateHash(const u8* seekTable) const {
+    auto crc = CRC::Calculate(this, offsetof(Header, hash), CRC::CRC_32());
+    auto hashOffset = offsetof(Header, hash) + sizeof(hash);
+    crc = CRC::Calculate(reinterpret_cast<const u8*>(this) + hashOffset, sizeof(Header) - hashOffset, CRC::CRC_32(), crc);
+    crc = CRC::Calculate(seekTable, tableSize * sizeof(Entry), CRC::CRC_32(), crc);
+    return crc;
+  }
+
+  ptrdiff_t CompressBuffer(const BufferView& input, const BufferView& output, i8 compressionLevel, u32 frameSize, bool checksum) {
     u32 tableSize = (input.size / frameSize) + ((input.size % frameSize) ? 1 : 0);
 
     auto outputSize = sizeof(Header) + (tableSize * sizeof(Entry)) + (ZSTD_compressBound(frameSize) * tableSize);
@@ -82,7 +95,8 @@ namespace zra {
       return -outputSize;
 
     size_t outputOffset{};
-    *reinterpret_cast<Header*>(output.data) = Header(input.size, tableSize, frameSize);
+    auto header = reinterpret_cast<Header*>(output.data);
+    *header = Header(input.size, tableSize, frameSize);
     outputOffset += sizeof(Header);
 
     auto tableOffset = outputOffset;
@@ -92,6 +106,7 @@ namespace zra {
     ZCCtx ctx;
     ZSTD_CCtx_setParameter(ctx, ZSTD_cParameter::ZSTD_c_compressionLevel, compressionLevel);
     ZSTD_CCtx_setParameter(ctx, ZSTD_cParameter::ZSTD_c_contentSizeFlag, false);
+    ZSTD_CCtx_setParameter(ctx, ZSTD_cParameter::ZSTD_c_checksumFlag, checksum);
     ZSTD_CCtx_setParameter(ctx, ZSTD_cParameter::ZSTD_c_dictIDFlag, false);
     ZSTD_CCtx_setParameter(ctx, ZSTD_cParameter::ZSTD_c_format, ZSTD_format_e::ZSTD_f_zstd1_magicless);
     ZSTD_CCtx_setParameter(ctx, ZSTD_cParameter::ZSTD_c_srcSizeHint, frameSize);
@@ -113,12 +128,14 @@ namespace zra {
         throw Exception(ErrorCode::CompressedSizeTooLarge);
     }
 
+    header->hash = header->CalculateHash(output.data + sizeof(Header));
+
     return outputOffset;
   }
 
-  Buffer CompressBuffer(const BufferView& buffer, i8 compressionLevel, u32 frameSize) {
-    Buffer output(-CompressBuffer(buffer, {}, compressionLevel, frameSize));
-    output.resize(CompressBuffer(buffer, output, compressionLevel, frameSize));
+  Buffer CompressBuffer(const BufferView& buffer, i8 compressionLevel, u32 frameSize, bool checksum) {
+    Buffer output(-CompressBuffer(buffer, {}, compressionLevel, frameSize, checksum));
+    output.resize(CompressBuffer(buffer, output, compressionLevel, frameSize, checksum));
     output.shrink_to_fit();
     return output;
   }
@@ -126,7 +143,7 @@ namespace zra {
   ptrdiff_t DecompressBuffer(const BufferView& input, const BufferView& output) {
     size_t inputOffset{};
     const Header& header = *reinterpret_cast<const Header*>(input.data);
-    if (!header.Valid())
+    if (!header.Valid(input.data + sizeof(Header)))
       throw Exception(ErrorCode::HeaderInvalid);
     inputOffset += sizeof(Header);
 
@@ -152,7 +169,7 @@ namespace zra {
 
   ptrdiff_t DecompressRA(const BufferView& input, const BufferView& output, size_t offset, size_t size) {
     const Header& header = *reinterpret_cast<const Header*>(input.data);
-    if (!header.Valid())
+    if (!header.Valid(input.data + sizeof(Header)))
       throw Exception(ErrorCode::HeaderInvalid);
 
     if (offset + size >= header.inputSize)
@@ -194,9 +211,10 @@ namespace zra {
     return output;
   }
 
-  Compressor::Compressor(size_t size, i8 compressionLevel, u32 frameSize) : ctx(std::make_shared<ZCCtx>()), frameSize(frameSize), tableSize(static_cast<u32>((size / frameSize) + ((size % frameSize) ? 1 : 0))), header(sizeof(Header) + (sizeof(Entry) * tableSize)), entryOffset(sizeof(Header)) {
+  Compressor::Compressor(size_t size, i8 compressionLevel, u32 frameSize, bool checksum) : ctx(std::make_shared<ZCCtx>()), frameSize(frameSize), tableSize(static_cast<u32>((size / frameSize) + ((size % frameSize) ? 1 : 0))), entryOffset(sizeof(Header)), header(sizeof(Header) + (sizeof(Entry) * tableSize)) {
     ZSTD_CCtx_setParameter(*ctx, ZSTD_cParameter::ZSTD_c_compressionLevel, compressionLevel);
     ZSTD_CCtx_setParameter(*ctx, ZSTD_cParameter::ZSTD_c_contentSizeFlag, false);
+    ZSTD_CCtx_setParameter(*ctx, ZSTD_cParameter::ZSTD_c_checksumFlag, checksum);
     ZSTD_CCtx_setParameter(*ctx, ZSTD_cParameter::ZSTD_c_dictIDFlag, false);
     ZSTD_CCtx_setParameter(*ctx, ZSTD_cParameter::ZSTD_c_format, ZSTD_format_e::ZSTD_f_zstd1_magicless);
     ZSTD_CCtx_setParameter(*ctx, ZSTD_cParameter::ZSTD_c_srcSizeHint, frameSize);
@@ -229,6 +247,11 @@ namespace zra {
       remaining -= frameSize;
     }
 
+    if (entryIndex == tableSize) {
+      auto headerObject = reinterpret_cast<Header*>(header.data());
+      headerObject->hash = headerObject->CalculateHash(header.data() + sizeof(Header));
+    }
+
     outputOffset += compressedSize;
     return compressedSize;
   }
@@ -245,9 +268,19 @@ namespace zra {
     output.resize(size);
   }
 
+  const Buffer& Compressor::GetHeader() {
+    if (entryOffset == header.size() && reinterpret_cast<Header*>(header.data())->Valid(header.data() + sizeof(Header)))
+      return header;
+    throw Exception(ErrorCode::HeaderInvalid);
+  }
+
+  size_t Compressor::GetHeaderSize() {
+    return header.size();
+  }
+
   Decompressor::Decompressor(const Buffer& header, const std::function<void(size_t, size_t, BufferView)>& readFunction, size_t maxCacheSize) : ctx(std::make_shared<ZDCtx>()), header(header), readFunction(readFunction), maxCacheSize(maxCacheSize) {
     auto _header = reinterpret_cast<Header*>(this->header.data());
-    if (this->header.size() < sizeof(Header) || !_header->Valid() || _header->Size() != this->header.size())
+    if (this->header.size() < sizeof(Header) || !_header->Valid(this->header.data() + sizeof(Header)) || _header->Size() != this->header.size())
       throw Exception(ErrorCode::HeaderInvalid);
 
     frameSize = reinterpret_cast<Header*>(this->header.data())->frameSize;
@@ -313,7 +346,7 @@ namespace zra {
   }
 
   FullDecompressor::FullDecompressor(Buffer header) : ctx(std::make_shared<ZDCtx>()), header(std::move(header)), entryOffset(sizeof(Header)), frameSize(reinterpret_cast<Header*>(this->header.data())->frameSize) {
-    if (!reinterpret_cast<Header*>(this->header.data())->Valid())
+    if (!reinterpret_cast<Header*>(this->header.data())->Valid(this->header.data() + sizeof(Header)))
       throw Exception(ErrorCode::HeaderInvalid);
 
     ZSTD_DCtx_setFormat(*ctx, ZSTD_format_e::ZSTD_f_zstd1_magicless);
@@ -361,6 +394,20 @@ namespace zra {
   }
 }  // namespace zra
 
+namespace {
+  constexpr ZraError MakeError(ZraErrorCode zra, zra::i32 zstd = 0) {
+    return ZraError{{.zra = static_cast<int32_t>(zra), .zstd = zstd}};
+  }
+
+  constexpr zra::i64 ResultCode(ZraErrorCode zra, zra::i32 zstd = 0) {
+    return -MakeError(zra, zstd).raw;
+  }
+
+  constexpr zra::i64 ResultCode(const zra::Exception& e) {
+    return ResultCode(static_cast<ZraErrorCode>(e.code), e.zstdCode);
+  }
+}
+
 uint16_t ZraGetVersion() {
   return zra::GetVersion();
 }
@@ -369,39 +416,39 @@ const char* ZraGetErrorString(ZraErrorCode code) {
   return zra::Exception::GetExceptionString(static_cast<zra::ErrorCode>(code)).data();
 }
 
-ptrdiff_t ZraCompressBuffer(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity, int8_t compressionLevel, uint64_t frameSize) {
+ptrdiff_t ZraCompressBuffer(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity, int8_t compressionLevel, uint64_t frameSize, bool checksum) {
   try {
-    auto result = zra::CompressBuffer(zra::BufferView(reinterpret_cast<zra::u8*>(inputBuffer), inputSize), zra::BufferView(reinterpret_cast<zra::u8*>(outputBuffer), outputCapacity), compressionLevel, frameSize);
-    return (result >= 0) ? result : (outputBuffer) ? ZraErrorCode::OutputBufferTooSmall : -result;
+    auto result = zra::CompressBuffer(zra::BufferView(reinterpret_cast<zra::u8*>(inputBuffer), inputSize), zra::BufferView(reinterpret_cast<zra::u8*>(outputBuffer), outputCapacity), compressionLevel, frameSize, checksum);
+    return (result >= 0) ? result : (outputBuffer) ? ResultCode(ZraErrorCode::OutputBufferTooSmall) : -result;
   } catch (const zra::Exception& e) {
-    return static_cast<ptrdiff_t>(e.code);
+    return ResultCode(e);
   }
 }
 
 ptrdiff_t ZraDecompressBuffer(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity) {
   try {
     auto result = zra::DecompressBuffer(zra::BufferView(reinterpret_cast<zra::u8*>(inputBuffer), inputSize), zra::BufferView(reinterpret_cast<zra::u8*>(outputBuffer), outputCapacity));
-    return (result >= 0) ? result : (outputBuffer) ? ZraErrorCode::OutputBufferTooSmall : -result;
+    return (result >= 0) ? result : (outputBuffer) ? ResultCode(ZraErrorCode::OutputBufferTooSmall) : -result;
   } catch (const zra::Exception& e) {
-    return static_cast<ptrdiff_t>(e.code);
+    return ResultCode(e);
   }
 }
 
 ptrdiff_t ZraDecompressRA(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity, size_t offset, size_t size) {
   try {
     auto result = zra::DecompressRA(zra::BufferView(reinterpret_cast<zra::u8*>(inputBuffer), inputSize), zra::BufferView(reinterpret_cast<zra::u8*>(outputBuffer), outputCapacity), offset, size);
-    return (result >= 0) ? result : (outputBuffer) ? ZraErrorCode::OutputBufferTooSmall : -result;
+    return (result >= 0) ? result : (outputBuffer) ? ResultCode(ZraErrorCode::OutputBufferTooSmall) : -result;
   } catch (const zra::Exception& e) {
-    return static_cast<ptrdiff_t>(e.code);
+    return ResultCode(e);
   }
 }
 
-ZraErrorCode ZraCreateCompressor(ZraCompressor** compressor, size_t size, int8_t compressionLevel, uint64_t frameSize) {
+ZraError ZraCreateCompressor(ZraCompressor** compressor, size_t size, int8_t compressionLevel, uint64_t frameSize, bool checksum) {
   try {
-    *compressor = reinterpret_cast<ZraCompressor*>(new zra::Compressor(size, compressionLevel, frameSize));
-    return ZraErrorCode::Success;
+    *compressor = reinterpret_cast<ZraCompressor*>(new zra::Compressor(size, compressionLevel, frameSize, checksum));
+    return MakeError(ZraErrorCode::Success);
   } catch (const zra::Exception& e) {
-    return static_cast<ZraErrorCode>(e.code);
+    return MakeError(static_cast<ZraErrorCode>(e.code), e.zstdCode);
   }
 }
 
@@ -412,22 +459,29 @@ void ZraDeleteCompressor(ZraCompressor* compressor) {
 ptrdiff_t ZraCompressWithCompressor(ZraCompressor* compressor, void* inputBuffer, size_t inputSize, void* outputBuffer, size_t outputCapacity) {
   try {
     auto result = reinterpret_cast<zra::Compressor*>(compressor)->Compress(zra::BufferView(reinterpret_cast<zra::u8*>(inputBuffer), inputSize), zra::BufferView(reinterpret_cast<zra::u8*>(outputBuffer), outputCapacity));
-    return (result >= 0) ? result : (outputBuffer) ? ZraErrorCode::OutputBufferTooSmall : -result;
+    return (result >= 0) ? result : (outputBuffer) ? ResultCode(ZraErrorCode::OutputBufferTooSmall) : -result;
   } catch (const zra::Exception& e) {
-    return static_cast<ptrdiff_t>(e.code);
+    return ResultCode(e);
   }
 }
 
 ptrdiff_t ZraGetHeaderWithCompressor(ZraCompressor* _compressor, void* outputBuffer, size_t outputCapacity) {
   auto compressor = reinterpret_cast<zra::Compressor*>(_compressor);
 
-  if (outputBuffer == nullptr)
-    return compressor->header.size();
-  if (outputCapacity < compressor->header.size())
-    return ZraErrorCode::OutputBufferTooSmall;
+  try {
+    auto headerSize = compressor->GetHeaderSize();
 
-  std::memcpy(outputBuffer, compressor->header.data(), compressor->header.size());
-  return compressor->header.size();
+    if (outputBuffer == nullptr)
+      return headerSize;
+    if (outputCapacity < headerSize)
+      return ResultCode(ZraErrorCode::OutputBufferTooSmall);
+
+    auto header = compressor->GetHeader();
+    std::memcpy(outputBuffer, header.data(), header.size());
+    return header.size();
+  } catch (const zra::Exception& e) {
+    return ResultCode(e);
+  }
 }
 
 ptrdiff_t ZraGetHeaderSize(void* _header, size_t headerSize) {
@@ -436,10 +490,10 @@ ptrdiff_t ZraGetHeaderSize(void* _header, size_t headerSize) {
   if (header == nullptr)
     return sizeof(*header);
   if (headerSize < sizeof(*header))
-    return ZraErrorCode::OutputBufferTooSmall;
+    return ResultCode(ZraErrorCode::OutputBufferTooSmall);
 
   if (!header->Valid())
-    return ZraErrorCode::HeaderInvalid;
+    return ResultCode(ZraErrorCode::HeaderInvalid);
 
   return header->Size();
 }
@@ -450,21 +504,21 @@ ptrdiff_t ZraGetUncompressedSize(void* _header, size_t headerSize) {
   if (header == nullptr)
     return sizeof(*header);
   if (headerSize < sizeof(*header))
-    return ZraErrorCode::OutputBufferTooSmall;
+    return ResultCode(ZraErrorCode::OutputBufferTooSmall);
 
   if (!header->Valid())
-    return ZraErrorCode::HeaderInvalid;
+    return ResultCode(ZraErrorCode::HeaderInvalid);
 
   return header->inputSize;
 }
 
-ZraErrorCode ZraCreateDecompressor(ZraDecompressor** decompressor, void* header, size_t headerSize, void (*readFunction)(size_t, size_t, void*), size_t maxCacheSize) {
+ZraError ZraCreateDecompressor(ZraDecompressor** decompressor, void* header, size_t headerSize, void (*readFunction)(size_t, size_t, void*), size_t maxCacheSize) {
   try {
     *decompressor = reinterpret_cast<ZraDecompressor*>(new zra::Decompressor(
         zra::Buffer(reinterpret_cast<zra::u8*>(header), reinterpret_cast<zra::u8*>(header) + headerSize), [readFunction](size_t off, size_t size, zra::BufferView buffer) { readFunction(off, size, buffer.data); }, maxCacheSize));
-    return ZraErrorCode::Success;
+    return MakeError(ZraErrorCode::Success);
   } catch (const zra::Exception& e) {
-    return static_cast<ZraErrorCode>(e.code);
+    return MakeError(static_cast<ZraErrorCode>(e.code), e.zstdCode);
   }
 }
 
@@ -475,8 +529,8 @@ void ZraDeleteDecompressor(ZraDecompressor* decompressor) {
 ptrdiff_t ZraDecompressWithDecompressor(ZraDecompressor* decompressor, size_t offset, size_t size, void* outputBuffer, size_t outputCapacity) {
   try {
     auto result = reinterpret_cast<zra::Decompressor*>(decompressor)->Decompress(offset, size, zra::BufferView(reinterpret_cast<zra::u8*>(outputBuffer), outputCapacity));
-    return (result >= 0) ? result : (outputBuffer) ? ZraErrorCode::OutputBufferTooSmall : -result;
+    return (result >= 0) ? result : (outputBuffer) ? ResultCode(ZraErrorCode::OutputBufferTooSmall) : -result;
   } catch (const zra::Exception& e) {
-    return static_cast<ptrdiff_t>(e.code);
+    return ResultCode(e);
   }
 }
