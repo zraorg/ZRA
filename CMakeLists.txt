@@ -43,7 +43,7 @@ include_directories("include")
 add_library(zra SHARED source/zra.cpp)
 target_link_libraries(zra PRIVATE libzstd_static)
 target_compile_definitions(zra PUBLIC ZRA_EXPORT_HEADER=true)
-target_include_directories(zra PUBLIC ${CMAKE_BINARY_DIR}/exports PRIVATE submodule/zstd/lib PRIVATE submodule/CRCpp/inc)
+target_include_directories(zra PUBLIC ${CMAKE_BINARY_DIR}/exports PRIVATE submodule/zstd/lib PRIVATE submodule/zstd/lib/common PRIVATE submodule/CRCpp/inc)
 GENERATE_EXPORT_HEADER(zra EXPORT_FILE_NAME ${CMAKE_BINARY_DIR}/exports/zra_export.h)
 
 option(BUILD_ZRATOOL "If ZraTool is build or not" FALSE)

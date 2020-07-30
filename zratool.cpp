@@ -66,7 +66,7 @@ zra::Buffer ReadFile(const std::string& name) {
 
 struct IFile {
   std::ifstream stream;
-  ptrdiff_t size;
+  size_t size;
 };
 
 IFile GetIFile(const std::string& name) {
@@ -79,19 +79,19 @@ IFile GetIFile(const std::string& name) {
   if (size <= 0)
     throw std::runtime_error("The specified file doesn't exist or is empty");
 
-  return IFile{std::move(iStream), size};
+  return IFile{std::move(iStream), static_cast<size_t>(size)};
 }
 
 int main(int argc, char* argv[]) {
   if (argc < 3) {
-    std::cout << argv[0] << " {mode} {file}\n"
-                            "c {file} {compression level = 3} - Non-RA Compression (Output will be the same as the file argument with \".c\" appended to the end)\n"
-                            "d {file} - Non-RA Decompression (Output will be the same as the file argument with \".d\" appended to the end) \n"
-                            "rac {file} {compression level = 3} {frame size = 16384} - RA Compression (Output will be the same as the file argument with \".rac\" appended to the end)\n"
-                            "rad {file} - RA Decompression (Output will be the same as the file argument with \".rad\" appended to the end) \n"
-                            "b {file} {compression level = 3} {offset = 0x1000} {size = 0x10000} - Benchmark"
+    std::cout << argv[0] << " {mode} {file} ...\n"
+                            "c  {file} {compression level = 3} {frame size = 16384} - In-memory Compression (Output will be the same as the file argument with \".c\" appended to the end)\n"
+                            "sc {file} {compression level = 3} {frame size = 16384} {stream buffer size = 10MB} - Streaming Compression (Output will be the same as the file argument with \".sc\" appended to the end)\n"
+                            "d  {file} - In-memory Decompression (Output will be the same as the file argument with \".d\" appended to the end) \n"
+                            "sd {file} {stream buffer size = 10MB} - Streaming Decompression (Output will be the same as the file argument with \".sd\" appended to the end) \n"
+                            "b  {file} {compression level = 3} {frame size = 16384} {stream buffer size = 10MB} {offset = 0x1000} {size = 0x10000} - Benchmark"
               << std::endl;
-    std::exit(0);
+    return 0;
   }
 
   std::string fileName{};
@@ -109,7 +109,7 @@ int main(int argc, char* argv[]) {
     zra::Buffer input = ReadFile(argv[2]);
     zra::Buffer output = zra::CompressBuffer(input, compressionLevel, frameSize);
 
-    fileName = std::string(argv[2]) + ".rac";
+    fileName = std::string(argv[2]) + ".c";
     fileSize = output.size();
 
     std::ofstream oStream(fileName, std::ios::binary | std::ios::out | std::ios::trunc);
@@ -165,7 +165,7 @@ int main(int argc, char* argv[]) {
     zra::Buffer input = ReadFile(argv[2]);
     zra::Buffer output = zra::DecompressBuffer(input);
 
-    fileName = std::string(argv[2]) + ".rad";
+    fileName = std::string(argv[2]) + ".d";
     fileSize = output.size();
 
     std::ofstream oStream(fileName, std::ios::binary | std::ios::out | std::ios::trunc);
@@ -272,10 +272,10 @@ int main(int argc, char* argv[]) {
     size_t raSize{0x10000};
 
     if (argc > 6)
-      offset = std::atoi(argv[4]);
+      offset = std::atoi(argv[6]);
 
     if (argc > 7)
-      raSize = std::atoi(argv[5]);
+      raSize = std::atoi(argv[7]);
 
     auto buffer = zra::CompressBuffer(input, compressionLevel);
     randomAccessBenchmark([buffer](zra::u64 offset, size_t size) { return zra::DecompressRA(buffer, offset, size); }, offset, raSize, "In-Memory");
@@ -285,6 +285,8 @@ int main(int argc, char* argv[]) {
       std::memcpy(view.data, buffer.data() + header.size() + off, sz);
     });
     randomAccessBenchmark([&raDecompressor](zra::u64 offset, size_t size) { zra::Buffer output; return raDecompressor.Decompress(offset, size, output); }, offset, raSize, "Streaming");
+  } else {
+    return main(1, argv);
   }
 
   if (fileSize || !fileName.empty())
