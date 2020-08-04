@@ -104,10 +104,10 @@ int main(int argc, char* argv[]) {
   if (type == "c") {
     int compressionLevel{0};
     if (argc > 3)
-      compressionLevel = std::atoi(argv[3]);
-    zra::u16 frameSize = 16384;
+      compressionLevel = std::stoi(argv[3]);
+    zra::u32 frameSize = 16384;
     if (argc > 4)
-      frameSize = std::atoi(argv[4]);
+      frameSize = std::stoi(argv[4]);
 
     zra::Buffer input = ReadFile(argv[2]);
     zra::Buffer output = zra::CompressBuffer(input, compressionLevel, frameSize);
@@ -120,10 +120,10 @@ int main(int argc, char* argv[]) {
   } else if (type == "sc") {
     int compressionLevel{0};
     if (argc > 3)
-      compressionLevel = std::atoi(argv[3]);
-    zra::u16 frameSize = 16384;
+      compressionLevel = std::stoi(argv[3]);
+    zra::u32 frameSize = 16384;
     if (argc > 4)
-      frameSize = std::atoi(argv[4]);
+      frameSize = std::stoi(argv[4]);
 
     auto iFile = GetIFile(argv[2]);
 
@@ -134,7 +134,7 @@ int main(int argc, char* argv[]) {
 
     size_t bufferSize = 10'000'000;
     if (argc > 5)
-      bufferSize = std::atoi(argv[5]) * 1'000'000;
+      bufferSize = std::stoi(argv[5]) * 1'000'000;
 
     zra::Buffer input(bufferSize - (bufferSize % frameSize) + frameSize);
 
@@ -188,7 +188,7 @@ int main(int argc, char* argv[]) {
 
     size_t bufferSize = 10'000'000;
     if (argc > 3)
-      bufferSize = std::atoi(argv[3]) * 1'000'000;
+      bufferSize = std::stoi(argv[3]) * 1'000'000;
 
     zra::Buffer input(bufferSize);
 
@@ -216,13 +216,13 @@ int main(int argc, char* argv[]) {
   } else if (type == "b") {
     int compressionLevel{0};
     if (argc > 3)
-      compressionLevel = std::atoi(argv[3]);
-    zra::u16 frameSize = 16384;
+      compressionLevel = std::stoi(argv[3]);
+    zra::u32 frameSize = 16384;
     if (argc > 4)
-      frameSize = std::atoi(argv[4]);
+      frameSize = std::stoi(argv[4]);
     size_t bufferSize = 10'000'000;
     if (argc > 5)
-      bufferSize = std::atoi(argv[5]) * 1'000'000;
+      bufferSize = std::stoi(argv[5]) * 1'000'000;
 
     zra::Buffer input = ReadFile(argv[2]);
 
@@ -274,10 +274,10 @@ int main(int argc, char* argv[]) {
     size_t raSize{0x10000};
 
     if (argc > 6)
-      offset = std::atoi(argv[6]);
+      offset = std::stoi(argv[6]);
 
     if (argc > 7)
-      raSize = std::atoi(argv[7]);
+      raSize = std::stoi(argv[7]);
 
     auto buffer = zra::CompressBuffer(input, compressionLevel);
     randomAccessBenchmark([buffer](zra::u64 offset, size_t size) { return zra::DecompressRA(buffer, offset, size); }, input, offset, raSize, "In-Memory");

@@ -64,7 +64,7 @@ namespace zra {
         return "The input size is not divisible by the frame size and nor is it the final frame";
     }
 
-    return "The error code is unrecognized";
+    return "An unknown error has occurred";
   }
 
   const char* Exception::what() const noexcept {
@@ -102,6 +102,8 @@ namespace zra {
       return *this;
     }
   };
+
+  constexpr u64 maxCompressedSize = 1ULL << 40;  //!< The maximum size of a compressed ZSTD file
 
   struct FixedHeader {
     u32 frameId{0x184D2A50};    //!< The frame ID for a ZSTD skippable frame
@@ -168,7 +170,7 @@ namespace zra {
     return seekTable;
   }
 
-  size_t GetOutputBufferSize(size_t inputSize, size_t frameSize) {
+  size_t GetOutputBufferSize(size_t inputSize, u32 frameSize) {
     u32 tableSize = (inputSize / frameSize) + ((inputSize % frameSize) ? 2 : 1);
     return sizeof(FixedHeader) + (tableSize * sizeof(Entry)) + (ZSTD_compressBound(frameSize) * (tableSize - 1));
   }
@@ -204,10 +206,10 @@ namespace zra {
 
       outputOffset += compressedSize;
       remaining -= frameSize;
-
-      if (outputOffset >= maxCompressedSize)
-        throw Exception(StatusCode::CompressedSizeTooLarge);
     }
+
+    if (outputOffset >= maxCompressedSize)
+      throw Exception(StatusCode::CompressedSizeTooLarge);
 
     entry->offset = outputOffset - compressedOffset;
     header->hash = header->CalculateHash(output.data + sizeof(FixedHeader));
@@ -316,6 +318,9 @@ namespace zra {
       compressOffset += frameCompressedSize;
       remaining -= frameSize;
     }
+
+    if (outputOffset >= maxCompressedSize)
+      throw Exception(StatusCode::CompressedSizeTooLarge);
 
     if (entry == reinterpret_cast<Entry*>(header.data() + header.size()) - 1) {
       entry++->offset = outputOffset;
@@ -472,11 +477,11 @@ size_t ZraGetVersionWithHeader(ZraHeader* header) {
   return reinterpret_cast<zra::Header*>(header)->version;
 }
 
-size_t ZraGetHeaderSize(ZraHeader* header) {
+size_t ZraGetHeaderSizeWithHeader(ZraHeader* header) {
   return reinterpret_cast<zra::Header*>(header)->size;
 }
 
-size_t ZraGetUncompressedSize(ZraHeader* header) {
+size_t ZraGetUncompressedSizeWithHeader(ZraHeader* header) {
   return reinterpret_cast<zra::Header*>(header)->uncompressedSize;
 }
 
@@ -567,6 +572,10 @@ ZraStatus ZraCreateDecompressor(ZraDecompressor** decompressor, void (*readFunct
 
 void ZraDeleteDecompressor(ZraDecompressor* decompressor) {
   delete reinterpret_cast<zra::Decompressor*>(decompressor);
+}
+
+ZraHeader* ZraGetHeaderWithDecompressor(ZraDecompressor* decompressor) {
+  return reinterpret_cast<ZraHeader*>(&reinterpret_cast<zra::Decompressor*>(decompressor)->header);
 }
 
 ZraStatus ZraDecompressWithDecompressor(ZraDecompressor* decompressor, size_t offset, size_t size, void* outputBuffer) {

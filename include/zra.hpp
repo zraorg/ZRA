@@ -90,12 +90,10 @@ namespace zra {
    */
   ZRA_EXPORT u16 GetVersion();
 
-  constexpr u64 maxCompressedSize = 1ULL << 40;  //!< The maximum size of a compressed ZSTD file
-
   /**
    * @brief This structure holds the header of a ZRA file
    */
-  class Header {
+  class ZRA_EXPORT Header {
    private:
     std::function<void(size_t, size_t, void*)> readFunction;  //!< This function is used to read data from the compressed file while supplying the offset and the size, the output should be into the buffer
 
@@ -114,6 +112,9 @@ namespace zra {
      */
     Header(const BufferView& buffer);
 
+    /**
+     * @return A Buffer containing the seek-table from the header
+     */
     Buffer GetSeekTable() const;
   };
 
@@ -122,7 +123,7 @@ namespace zra {
    * @param frameSize The size of a single frame
    * @return The worst-case size of the compressed output
    */
-  ZRA_EXPORT size_t GetOutputBufferSize(size_t inputSize, size_t frameSize);
+  ZRA_EXPORT size_t GetOutputBufferSize(size_t inputSize, u32 frameSize);
 
   /**
    * @brief This compresses the supplied buffer with specified parameters in-memory into a BufferView
@@ -245,7 +246,11 @@ namespace zra {
    private:
     std::shared_ptr<ZDCtx> ctx;                               //!< A shared pointer to the incomplete ZDCtx class
     std::function<void(size_t, size_t, void*)> readFunction;  //!< This function is used to read data from the compressed file while supplying the offset and the size, the output should be into the buffer
+
+   public:
     Header header;                                            //!< The Header of the file/buffer that is being decompressed
+
+   private:
     Buffer seekTable;                                         //!< The seek-table is required for random-access throughout the file
     Buffer cache;                                             //!< A Buffer to read compressed data from the file into, it is reused to prevent constant reallocation
     size_t maxCacheSize;                                      //!< The maximum size of the cache, if the uncompressed segment read goes above this then it'll be read into it's own vector

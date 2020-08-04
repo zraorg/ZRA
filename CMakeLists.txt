@@ -44,7 +44,7 @@ add_subdirectory(submodule/zstd/build/cmake)
 
 include_directories("include")
 
-add_library(zra STATIC source/zra.cpp)
+add_library(zra source/zra.cpp)
 target_link_libraries(zra PRIVATE libzstd_static)
 target_compile_definitions(zra PUBLIC ZRA_EXPORT_HEADER=true)
 target_include_directories(zra PUBLIC ${CMAKE_BINARY_DIR}/exports PRIVATE submodule/zstd/lib PRIVATE submodule/zstd/lib/common PRIVATE submodule/CRCpp/inc)

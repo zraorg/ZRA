@@ -20,11 +20,11 @@ jobs:
 
      - if: matrix.os == 'ubuntu-latest'
        name: CMake Generate (Linux)
-       run: CXX=g++-9 CC=gcc-9 cmake -DOUT_DIRECTORY=TRUE -DBUILD_ZRATOOL=TRUE -B build .
+       run: CXX=g++-9 CC=gcc-9 cmake -DOUT_DIRECTORY=TRUE -DBUILD_ZRATOOL=TRUE -DBUILD_SHARED_LIBS=TRUE -B build .
 
      - if: matrix.os != 'ubuntu-latest'
        name: CMake Generate
-       run: cmake -DOUT_DIRECTORY=TRUE -DBUILD_ZRATOOL=TRUE -B build .
+       run: cmake -DOUT_DIRECTORY=TRUE -DBUILD_ZRATOOL=TRUE -DBUILD_SHARED_LIBS=TRUE -B build .
      
      - name: CMake Build
        run: cmake --build build --config Release

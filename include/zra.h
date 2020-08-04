@@ -76,24 +76,24 @@ ZRA_EXPORT ZraStatus ZraCreateHeader(ZraHeader** header, void(readFunction)(size
 ZRA_EXPORT ZraStatus ZraCreateHeader2(ZraHeader** header, void* buffer, size_t size);
 
 /**
- * @return The version of the file with the corresponding header
+ * @brief Deletes a ZraHeader object
+ */
+ZRA_EXPORT void ZraDeleteHeader(ZraHeader* header);
+
+/**
+ * @return The version of ZRA which the file was compressed with
  */
 ZRA_EXPORT size_t ZraGetVersionWithHeader(ZraHeader* header);
 
 /**
  * @return The size of the entire header in bytes
  */
-ZRA_EXPORT size_t ZraGetSizeWithHeader(ZraHeader* header);
+ZRA_EXPORT size_t ZraGetHeaderSizeWithHeader(ZraHeader* header);
 
 /**
  * @return The size of the original uncompressed data in bytes
  */
 ZRA_EXPORT size_t ZraGetUncompressedSizeWithHeader(ZraHeader* header);
-
-/**
- * @brief Deletes a ZraHeader object
- */
-ZRA_EXPORT void ZraDeleteHeader(ZraHeader* header);
 
 // ------In-Memory Functions------
 
@@ -195,6 +195,12 @@ ZRA_EXPORT ZraStatus ZraCreateDecompressor(ZraDecompressor** decompressor, void(
  * @brief Deletes a ZraDecompressor object
  */
 ZRA_EXPORT void ZraDeleteDecompressor(ZraDecompressor* decompressor);
+
+/**
+ * @return The header object created by the decompressor internally, so that it won't have to be constructed redundantly
+ * @note The lifetime of the object is directly tied to that of the Decompressor, do not manually delete it
+ */
+ZRA_EXPORT ZraHeader* ZraGetHeaderWithDecompressor(ZraDecompressor* decompressor);
 
 /**
  * @brief Decompresses data from a slice of corresponding to the original uncompressed file into the specified buffer
