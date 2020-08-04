@@ -30,11 +30,14 @@ void compressionBenchmark(const std::function<zra::Buffer()>& compressFunction, 
 }
 
 template <typename raType>
-void randomAccessBenchmark(raType raFunction, size_t offset, size_t size, const std::string& name) {
+void randomAccessBenchmark(raType raFunction, const zra::Buffer& input, size_t offset, size_t size, const std::string& name) {
   auto start = std::chrono::high_resolution_clock::now();
-  raFunction(offset, size);
+  zra::Buffer raBuffer = raFunction(offset, size);
   auto end = std::chrono::high_resolution_clock::now();
   auto accessTime = end - start;
+
+  if (memcmp(raBuffer.data(), input.data() + offset, size) != 0)
+    throw std::runtime_error("RA memory contents aren't equal");
 
   constexpr auto bytesInMb = 1024 * 1024;
 
@@ -173,11 +176,10 @@ int main(int argc, char* argv[]) {
   } else if (type == "sd") {
     auto iFile = GetIFile(argv[2]);
 
-    zra::Buffer header(sizeof(zra::Header));
-    iFile.stream.read(reinterpret_cast<char*>(header.data()), header.size());
-    header.resize(reinterpret_cast<zra::Header*>(header.data())->Size());
-    iFile.stream.read(reinterpret_cast<char*>(header.data() + sizeof(zra::Header)), header.size() - sizeof(zra::Header));
-    auto size = iFile.size - header.size();
+    zra::Header header([&iFile](size_t offset, size_t size, void* output) {
+      iFile.stream.seekg(offset);
+      iFile.stream.read(static_cast<char*>(output), size);
+    });
 
     zra::FullDecompressor decompressor(header);
 
@@ -190,6 +192,7 @@ int main(int argc, char* argv[]) {
 
     zra::Buffer input(bufferSize);
 
+    auto size = iFile.size - header.size;
     std::cout << std::dec << "0% (0/" << size << " bytes)" << std::flush;
 
     zra::Buffer data;
@@ -246,16 +249,15 @@ int main(int argc, char* argv[]) {
       std::memcpy(output.data(), header.data(), header.size());
 
       return output; }, [bufferSize](const zra::BufferView& view) {
-
-      zra::Buffer header(view.data, view.data + reinterpret_cast<zra::Header*>(view.data)->Size());
-      auto size = view.size - header.size();
+      zra::Header header(view);
+      auto size = view.size - header.size;
 
       zra::FullDecompressor decompressor(header);
 
       zra::Buffer input(bufferSize);
 
       zra::Buffer data, output;
-      size_t offset{header.size()};
+      size_t offset{header.size};
       while (offset < size) {
         auto read = std::min(view.size - offset, input.size());
         std::memcpy(input.data(), view.data + offset, read);
@@ -278,13 +280,12 @@ int main(int argc, char* argv[]) {
       raSize = std::atoi(argv[7]);
 
     auto buffer = zra::CompressBuffer(input, compressionLevel);
-    randomAccessBenchmark([buffer](zra::u64 offset, size_t size) { return zra::DecompressRA(buffer, offset, size); }, offset, raSize, "In-Memory");
+    randomAccessBenchmark([buffer](zra::u64 offset, size_t size) { return zra::DecompressRA(buffer, offset, size); }, input, offset, raSize, "In-Memory");
 
-    zra::Buffer header(buffer.data(), buffer.data() + reinterpret_cast<zra::Header*>(buffer.data())->Size());
-    zra::Decompressor raDecompressor(header, [&buffer, &header](size_t off, size_t sz, zra::BufferView view) {
-      std::memcpy(view.data, buffer.data() + header.size() + off, sz);
+    zra::Decompressor raDecompressor([&buffer](size_t offset, size_t size, void* output) {
+      std::memcpy(output, buffer.data() + offset, size);
     });
-    randomAccessBenchmark([&raDecompressor](zra::u64 offset, size_t size) { zra::Buffer output; return raDecompressor.Decompress(offset, size, output); }, offset, raSize, "Streaming");
+    randomAccessBenchmark([&raDecompressor](zra::u64 offset, size_t size) { zra::Buffer output; raDecompressor.Decompress(offset, size, output); return output; }, input, offset, raSize, "Streaming");
   } else {
     return main(1, argv);
   }

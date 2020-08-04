@@ -14,7 +14,7 @@ endif ()
 
 if ((CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU") OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wno-unknown-pragmas")
-endif()
+endif ()
 
 option(OUT_DIRECTORY "If to output to a fixed 'out' directory" FALSE)
 
@@ -34,13 +34,17 @@ set(ZSTD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(ZSTD_BUILD_SHARED OFF CACHE BOOL "" FORCE)
 set(ZSTD_BUILD_STATIC ON CACHE BOOL "" FORCE)
 set(ZSTD_LEGACY_SUPPORT OFF CACHE BOOL "" FORCE)
-set(ZSTD_MULTITHREAD_SUPPORT ON CACHE BOOL "" FORCE)
+
+option(ZRA_MULTITHREAD "If ZSTD should be built with ZSTD_MULTITHREAD_SUPPORT" TRUE)
+if (ZRA_MULTITHREAD)
+    set(ZSTD_MULTITHREAD_SUPPORT ON CACHE BOOL "" FORCE)
+endif ()
 
 add_subdirectory(submodule/zstd/build/cmake)
 
 include_directories("include")
 
-add_library(zra SHARED source/zra.cpp)
+add_library(zra STATIC source/zra.cpp)
 target_link_libraries(zra PRIVATE libzstd_static)
 target_compile_definitions(zra PUBLIC ZRA_EXPORT_HEADER=true)
 target_include_directories(zra PUBLIC ${CMAKE_BINARY_DIR}/exports PRIVATE submodule/zstd/lib PRIVATE submodule/zstd/lib/common PRIVATE submodule/CRCpp/inc)

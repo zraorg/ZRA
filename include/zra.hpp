@@ -55,12 +55,13 @@ namespace zra {
   enum class StatusCode {
     Success,                 //!< The operation was successful
     ZStdError,               //!< An error was returned by ZStandard
+    ZraVersionLow,           //!< The version of ZRA is too low to decompress this archive
     HeaderInvalid,           //!< The header in the supplied buffer was invalid
     HeaderIncomplete,        //!< The header hasn't been fully written before getting retrieved
     OutOfBoundsAccess,       //!< The specified offset and size are past the data contained within the buffer
     OutputBufferTooSmall,    //!< The output buffer is too small to contain the output (Supply null output buffer to get size)
     CompressedSizeTooLarge,  //!< The compressed output's size exceeds the maximum limit
-    InputFrameSizeMismatch,  //!< The input size is not divisble by the frame size and it isn't the final frame
+    InputFrameSizeMismatch,  //!< The input size is not divisible by the frame size nor is it the final frame
   };
 
   /**
@@ -68,7 +69,7 @@ namespace zra {
    */
   struct ZRA_EXPORT Exception : std::exception {
     StatusCode code;  //!< The error code associated with this exception
-    i32 zstdCode;     //!< The error code issued by ZSTD, if any
+    int zstdCode;     //!< The error code issued by ZSTD, if any
 
     Exception(StatusCode code, i32 zstdCode = {});
 
@@ -85,80 +86,36 @@ namespace zra {
   };
 
   /**
-   * @return The version of ZRA the library linked to this uses
+   * @return The highest version of ZRA the library linked to this supports
    */
   ZRA_EXPORT u16 GetVersion();
 
   constexpr u64 maxCompressedSize = 1ULL << 40;  //!< The maximum size of a compressed ZSTD file
 
-  // clang-format off
-#pragma pack(push, 1)
-#pragma scalar_storage_order little-endian;
-  // clang-format on
-
-  /**
-   * @brief This structure holds a single entry in the seek table
-   */
-  struct Entry {
-    u64 offset : 40;  //!< The offset of the frame in the compressed segment
-    u32 size;         //!< The size of the compressed frame
-  };
-
   /**
    * @brief This structure holds the header of a ZRA file
-   * @note The members marked with * are immutable across versions
    */
-  struct Header {
-    u32 frameId{0x184D2A50};    //!< The frame ID for a ZSTD skippable frame *
-    u32 headerSize{};           //!< The size of the header after this in bytes *
-    u32 magic{0x3041525A};      //!< The magic for the ZRA format "ZRA0" *
-    u16 version{GetVersion()};  //!< The version of ZRA it was compressed with *
-    u32 fixedHash{};            //!< The CRC-32 hash of the fixed-format header (this structure) *
-    u32 variableHash{};         //!< The CRC-32 hash of the variable-format segments of the header *
-    u64 origSize{};             //!< The size of the original data, this is used for bounds-checking and buffer pre-allocation
-    u32 tableSize{};            //!< The amount of entries present in the seek table
-    u32 frameSize{};            //!< The size of frames except for the final frame
+  class Header {
+   private:
+    std::function<void(size_t, size_t, void*)> readFunction;  //!< This function is used to read data from the compressed file while supplying the offset and the size, the output should be into the buffer
 
-    inline Header() = default;
+   public:
+    u16 version;           //!< The version of ZRA the archive was compressed with
+    u32 size;              //!< The size of the entire header
+    u64 uncompressedSize;  //!< The size of the original uncompressed file
+    u32 frameSize;         //!< The size of the frames except for the final frame
+    u32 seekTableOffset;   //!< The offset of the seek table from the start of the file
+    u32 seekTableSize;     //!< The size of the seek table
 
-    inline Header(u64 origSize, u32 tableSize, u32 frameSize) : origSize(origSize), tableSize(tableSize), frameSize(frameSize) {
-      headerSize = Size() - offsetof(Header, headerSize);
-      fixedHash = CalculateHash();
-    }
+    Header(const std::function<void(size_t offset, size_t size, void* buffer)>& readFunction);
 
     /**
-     * @return The size of the entire header including the seek table
+     * @param buffer A buffer with the entire compressed file so that it can be safely used to extract the header
      */
-    u32 Size() const {
-      return sizeof(Header) + (tableSize * sizeof(Entry));
-    }
+    Header(const BufferView& buffer);
 
-    /**
-     * @return The size of the original uncompressed file
-     */
-    u32 UncompressedSize() const {
-      return sizeof(Header) + (tableSize * sizeof(Entry));
-    }
-
-    /**
-     * @param rest A pointer to the rest of the header (Variable-format segments)
-     * @return If this Header object is valid or not
-     */
-    bool Valid(const u8* rest = nullptr) const {
-      return magic == 0x3041525A && version == GetVersion() && fixedHash == CalculateHash() && rest ? variableHash == CalculateHash(rest) : true;
-    }
-
-    /**
-     * @param rest A pointer to the rest of the header (Variable format segments)
-     * @return A CRC-32 hash of the fixed-format header if rest is null, else CRC-32 hash of the variable format segments
-     */
-    u32 CalculateHash(const u8* rest = nullptr) const;
+    Buffer GetSeekTable() const;
   };
-
-  // clang-format off
-#pragma scalar_storage_order default
-#pragma pack(pop)
-  // clang-format on
 
   /**
    * @param inputSize The size of the input being compressed
@@ -221,6 +178,7 @@ namespace zra {
   ZRA_EXPORT Buffer DecompressRA(const BufferView& buffer, size_t offset, size_t size);
 
   class ZCCtx;
+  struct Entry;
 
   /**
    * @brief This class is used to implement streaming ZRA compression
@@ -230,9 +188,9 @@ namespace zra {
     std::shared_ptr<ZCCtx> ctx;  //!< A shared pointer to the incomplete ZCCtx class
     u32 frameSize;               //!< The size of a single compressed frame
     u32 tableSize;               //!< The size of the frame table in entries
-    size_t entryOffset;          //!< The offset of the current frame entry in the table
-    size_t outputOffset{};       //!< The offset of the output file
     Buffer header;               //!< A Buffer containing the header of the file
+    Entry* entry;                //!< The current frame entry in the seek table
+    size_t outputOffset{};       //!< The offset of the output file
 
    public:
     /**
@@ -268,6 +226,7 @@ namespace zra {
     /**
      * @return A const-reference to a Buffer containing the entire header (including the seek table)
      * @throws Exception with StatusCode::HeaderInvalid, if the header hasn't been fully written yet
+     * @note This refers to a class member and will be destroyed when the class is, it is the user's job to manage this
      */
     const Buffer& GetHeader();
 
@@ -284,21 +243,15 @@ namespace zra {
    */
   class ZRA_EXPORT Decompressor {
    private:
-    std::shared_ptr<ZDCtx> ctx;                                    //!< A shared pointer to the incomplete ZDCtx class
-    Buffer header;                                                 //!< A Buffer containing the header of the file
-    u32 frameSize{};                                               //!< The size of a single frame (Except the last frame, which can be less than this)
-    size_t inputSize{};                                            //!< The size of the entire input data, this is used for bounds-checking
-    std::function<void(size_t, size_t, BufferView)> readFunction;  //!< This function is used to read in data from the compressed file
-    Buffer cache;                                                  //!< A Buffer to read compressed data from the file into, it is reused to prevent constant reallocation
-    size_t maxCacheSize;                                           //!< The maximum size of the cache, if the uncompressed segment read goes above this then it'll be read into it's own vector
+    std::shared_ptr<ZDCtx> ctx;                               //!< A shared pointer to the incomplete ZDCtx class
+    std::function<void(size_t, size_t, void*)> readFunction;  //!< This function is used to read data from the compressed file while supplying the offset and the size, the output should be into the buffer
+    Header header;                                            //!< The Header of the file/buffer that is being decompressed
+    Buffer seekTable;                                         //!< The seek-table is required for random-access throughout the file
+    Buffer cache;                                             //!< A Buffer to read compressed data from the file into, it is reused to prevent constant reallocation
+    size_t maxCacheSize;                                      //!< The maximum size of the cache, if the uncompressed segment read goes above this then it'll be read into it's own vector
 
    public:
-    /**
-     * @param header A buffer containing the header of the file which should correspond Compressor::header, it's full size can be inferred by using Header::Size
-     * @param readFunction This function is used to read data from the compressed file while supplying the offset (Not including the header) and the size, the output should be into the buffer
-     * @param cacheSize The maximum size of the cache, if the uncompressed segment read goes above this then it'll be read into it's own vector
-     */
-    Decompressor(const Buffer& header, const std::function<void(size_t, size_t, BufferView)>& readFunction, size_t maxCacheSize = 1024 * 1024 * 20);
+    Decompressor(const std::function<void(size_t offset, size_t size, void* buffer)>& readFunction, size_t maxCacheSize = 1024 * 1024 * 20);
 
     /**
      * @brief This decompresses data from a slice of corresponding to the original uncompressed file into a BufferView
@@ -324,16 +277,13 @@ namespace zra {
   class ZRA_EXPORT FullDecompressor {
    private:
     std::shared_ptr<ZDCtx> ctx;  //!< A shared pointer to the incomplete ZDCtx class
-    Buffer header;               //!< A Buffer containing the header of the file
+    Header header;               //!< The Header of the file/buffer that is being decompressed
+    Buffer seekTable;            //!< The seek-table is required for random-access throughout the file
     Buffer frame;                //!< A Buffer containing a partial frame from decompressing
-    size_t entryOffset;          //!< The offset of the current frame entry in the table
-    u32 frameSize;               //!< The size of a single frame (Except the last frame, which can be less than this)
+    Entry* entry;                //!< The current frame entry in the seek table
 
    public:
-    /**
-     * @param header A Buffer containing the header of the file which should correspond Compressor::header, it's full size can be inferred by using Header::Size
-     */
-    FullDecompressor(Buffer header);
+    FullDecompressor(const Header& header);
 
     /**
      * @brief This decompresses a partial stream of data (All chunks supplied to this are expected to be contiguous)
