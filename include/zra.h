@@ -113,8 +113,10 @@ ZRA_EXPORT size_t ZraGetCompressedOutputBufferSize(size_t inputSize, size_t fram
  * @param compressionLevel The ZSTD compression level to compress the buffer with
  * @param frameSize The size of a single frame which can be decompressed individually (This does not always equate to a single ZSTD frame)
  * @param checksum If ZSTD should add a checksum over all blocks of data that'll be compressed
+ * @param metaBuffer A pointer to the metadata
+ * @param metaSize The size of the metadata
  */
-ZRA_EXPORT ZraStatus ZraCompressBuffer(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t* outputSize, int8_t compressionLevel = 0, uint32_t frameSize = 16384, bool checksum = false);
+ZRA_EXPORT ZraStatus ZraCompressBuffer(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t* outputSize, int8_t compressionLevel = 0, uint32_t frameSize = 16384, bool checksum = false, void* metaBuffer = nullptr, size_t metaSize = 0);
 
 /**
  * @brief Decompresses the entirety of the supplied compressed buffer in-memory into the specified buffer
@@ -144,8 +146,10 @@ struct ZraCompressor;
  * @param compressionLevel The level of ZSTD compression to use
  * @param frameSize The size of a single frame which can be decompressed individually
  * @param checksum If ZSTD should add a checksum over all blocks of data that'll be compressed
+ * @param metaBuffer A pointer to the metadata
+ * @param metaSize The size of the metadata
  */
-ZRA_EXPORT ZraStatus ZraCreateCompressor(ZraCompressor** compressor, size_t size, int8_t compressionLevel = 0, uint32_t frameSize = 16384, bool checksum = false);
+ZRA_EXPORT ZraStatus ZraCreateCompressor(ZraCompressor** compressor, size_t size, int8_t compressionLevel = 0, uint32_t frameSize = 16384, bool checksum = false, void* metaBuffer = nullptr, size_t metaSize = 0);
 
 /**
  * @brief Deletes a ZraCompressor object

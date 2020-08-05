@@ -42,7 +42,7 @@ namespace zra {
 
   Exception::Exception(StatusCode code, int zstdCode) : code(code), zstdCode(zstdCode) {}
 
-  std::string_view Exception::GetExceptionString(StatusCode code) {
+  const char* Exception::GetExceptionString(StatusCode code) {
     switch (code) {
       case StatusCode::Success:
         return "The operation was successful";
@@ -74,7 +74,7 @@ namespace zra {
       reason = (reason + ": ").append(ZSTD_getErrorString(static_cast<ZSTD_ErrorCode>(zstdCode)));
       return reason.c_str();
     } else {
-      return GetExceptionString(code).data();
+      return GetExceptionString(code);
     }
   }
 
@@ -114,11 +114,12 @@ namespace zra {
     u64 uncompressedSize{};     //!< The size of the original data, this is used for bounds-checking and buffer pre-allocation
     u32 tableSize{};            //!< The amount of entries present in the seek table
     u32 frameSize{};            //!< The size of frames except for the final frame
+    u32 metaSize{};             //!< The size of the metadata section
 
     inline FixedHeader() = default;
 
-    inline FixedHeader(u64 origSize, u32 tableSize, u32 frameSize) : uncompressedSize(origSize), tableSize(tableSize), frameSize(frameSize) {
-      headerSize = sizeof(FixedHeader) + (tableSize * sizeof(Entry)) - (offsetof(FixedHeader, headerSize) + sizeof(headerSize));
+    inline FixedHeader(u64 origSize, u32 tableSize, u32 frameSize, u32 metaSize) : uncompressedSize(origSize), tableSize(tableSize), frameSize(frameSize), metaSize(metaSize) {
+      headerSize = sizeof(FixedHeader) + (tableSize * sizeof(Entry)) + metaSize - (offsetof(FixedHeader, headerSize) + sizeof(headerSize));
     }
 
     u32 CalculateHash(const u8* rest) const {
@@ -146,6 +147,8 @@ namespace zra {
     frameSize = fixed.frameSize;
     seekTableOffset = sizeof(FixedHeader);
     seekTableSize = fixed.tableSize * sizeof(Entry);
+    metaOffset = seekTableOffset + seekTableSize;
+    metaSize = fixed.metaSize;
 
     switch (fixed.version) {
       case 1:
@@ -170,12 +173,18 @@ namespace zra {
     return seekTable;
   }
 
-  size_t GetOutputBufferSize(size_t inputSize, u32 frameSize) {
-    u32 tableSize = (inputSize / frameSize) + ((inputSize % frameSize) ? 2 : 1);
-    return sizeof(FixedHeader) + (tableSize * sizeof(Entry)) + (ZSTD_compressBound(frameSize) * (tableSize - 1));
+  Buffer Header::GetMetadata() const {
+    zra::Buffer meta(metaSize);
+    readFunction(metaOffset, metaSize, meta.data());
+    return meta;
   }
 
-  size_t CompressBuffer(const BufferView& input, const BufferView& output, i8 compressionLevel, u32 frameSize, bool checksum) {
+  size_t GetOutputBufferSize(size_t inputSize, u32 frameSize, u32 metaSize) {
+    u32 tableSize = (inputSize / frameSize) + ((inputSize % frameSize) ? 2 : 1);
+    return sizeof(FixedHeader) + (tableSize * sizeof(Entry)) + metaSize + (ZSTD_compressBound(frameSize) * (tableSize - 1));
+  }
+
+  size_t CompressBuffer(const BufferView& input, const BufferView& output, i8 compressionLevel, u32 frameSize, bool checksum, const BufferView& meta) {
     u32 tableSize = (input.size / frameSize) + ((input.size % frameSize) ? 2 : 1);
     auto outputSize = sizeof(FixedHeader) + (tableSize * sizeof(Entry)) + (ZSTD_compressBound(frameSize) * (tableSize - 1));
     if (output.size < outputSize)
@@ -183,7 +192,7 @@ namespace zra {
 
     size_t outputOffset{};
     auto header = reinterpret_cast<FixedHeader*>(output.data);
-    *header = FixedHeader(input.size, tableSize, frameSize);
+    *header = FixedHeader(input.size, tableSize, frameSize, meta.size);
     outputOffset += sizeof(FixedHeader);
 
     auto entry = reinterpret_cast<Entry*>(output.data + outputOffset);
@@ -217,9 +226,9 @@ namespace zra {
     return outputOffset;
   }
 
-  Buffer CompressBuffer(const BufferView& buffer, i8 compressionLevel, u32 frameSize, bool checksum) {
+  Buffer CompressBuffer(const BufferView& buffer, i8 compressionLevel, u32 frameSize, bool checksum, const BufferView& meta) {
     Buffer output(GetOutputBufferSize(buffer.size, frameSize));
-    output.resize(CompressBuffer(buffer, output, compressionLevel, frameSize, checksum));
+    output.resize(CompressBuffer(buffer, output, compressionLevel, frameSize, checksum, meta));
     output.shrink_to_fit();
     return output;
   }
@@ -285,13 +294,14 @@ namespace zra {
     return output;
   }
 
-  Compressor::Compressor(size_t size, i8 compressionLevel, u32 frameSize, bool checksum) : ctx(std::make_shared<ZCCtx>()), frameSize(frameSize), tableSize(static_cast<u32>((size / frameSize) + ((size % frameSize) ? 2 : 1))), header(sizeof(FixedHeader) + (sizeof(Entry) * tableSize)), entry(reinterpret_cast<Entry*>(header.data() + sizeof(FixedHeader))) {
+  Compressor::Compressor(size_t size, i8 compressionLevel, u32 frameSize, bool checksum, const BufferView& meta) : ctx(std::make_shared<ZCCtx>()), frameSize(frameSize), tableSize(static_cast<u32>((size / frameSize) + ((size % frameSize) ? 2 : 1))), header(sizeof(FixedHeader) + (sizeof(Entry) * tableSize) + meta.size), entry(reinterpret_cast<Entry*>(header.data() + sizeof(FixedHeader))) {
     ZSTD_CCtx_setParameter(*ctx, ZSTD_cParameter::ZSTD_c_compressionLevel, compressionLevel);
     ZSTD_CCtx_setParameter(*ctx, ZSTD_cParameter::ZSTD_c_contentSizeFlag, false);
     ZSTD_CCtx_setParameter(*ctx, ZSTD_cParameter::ZSTD_c_checksumFlag, checksum);
     ZSTD_CCtx_setParameter(*ctx, ZSTD_cParameter::ZSTD_c_dictIDFlag, false);
 
-    *reinterpret_cast<FixedHeader*>(header.data()) = FixedHeader(size, tableSize, frameSize);
+    *reinterpret_cast<FixedHeader*>(header.data()) = FixedHeader(size, tableSize, frameSize, meta.size);
+    memcpy(header.data() + sizeof(FixedHeader) + (sizeof(Entry) * tableSize), meta.data, meta.size);
   }
 
   size_t Compressor::GetOutputBufferSize(size_t inputSize) const {
@@ -493,9 +503,9 @@ void ZraDeleteHeader(ZraHeader* header) {
   delete reinterpret_cast<zra::Header*>(header);
 }
 
-ZraStatus ZraCompressBuffer(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t* outputSize, int8_t compressionLevel, uint32_t frameSize, bool checksum) {
+ZraStatus ZraCompressBuffer(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t* outputSize, int8_t compressionLevel, uint32_t frameSize, bool checksum, void* metaBuffer, size_t metaSize) {
   try {
-    *outputSize = zra::CompressBuffer(zra::BufferView(reinterpret_cast<zra::u8*>(inputBuffer), inputSize), zra::BufferView(reinterpret_cast<zra::u8*>(outputBuffer), zra::GetOutputBufferSize(inputSize, frameSize)), compressionLevel, frameSize, checksum);
+    *outputSize = zra::CompressBuffer(zra::BufferView(reinterpret_cast<zra::u8*>(inputBuffer), inputSize), zra::BufferView(reinterpret_cast<zra::u8*>(outputBuffer), zra::GetOutputBufferSize(inputSize, frameSize)), compressionLevel, frameSize, checksum, zra::BufferView(reinterpret_cast<zra::u8*>(metaBuffer), metaSize));
     return MakeStatus(ZraStatusCode::Success);
   } catch (const zra::Exception& e) {
     return MakeStatus(e);
@@ -520,9 +530,9 @@ ZraStatus ZraDecompressRA(void* inputBuffer, size_t inputSize, void* outputBuffe
   }
 }
 
-ZraStatus ZraCreateCompressor(ZraCompressor** compressor, size_t size, int8_t compressionLevel, uint32_t frameSize, bool checksum) {
+ZraStatus ZraCreateCompressor(ZraCompressor** compressor, size_t size, int8_t compressionLevel, uint32_t frameSize, bool checksum, void* metaBuffer, size_t metaSize) {
   try {
-    *compressor = reinterpret_cast<ZraCompressor*>(new zra::Compressor(size, compressionLevel, frameSize, checksum));
+    *compressor = reinterpret_cast<ZraCompressor*>(new zra::Compressor(size, compressionLevel, frameSize, checksum, zra::BufferView(reinterpret_cast<zra::u8*>(metaBuffer), metaSize)));
     return MakeStatus(ZraStatusCode::Success);
   } catch (const zra::Exception& e) {
     return MakeStatus(static_cast<ZraStatusCode>(e.code), e.zstdCode);

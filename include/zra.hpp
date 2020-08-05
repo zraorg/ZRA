@@ -77,7 +77,7 @@ namespace zra {
      * @param code The error code to describe
      * @return A string describing the supplied error code
      */
-    static std::string_view GetExceptionString(StatusCode code);
+    static const char* GetExceptionString(StatusCode code);
 
     /**
      * @return A string describing the contents of this exception
@@ -104,6 +104,8 @@ namespace zra {
     u32 frameSize;         //!< The size of the frames except for the final frame
     u32 seekTableOffset;   //!< The offset of the seek table from the start of the file
     u32 seekTableSize;     //!< The size of the seek table
+    u32 metaOffset;        //!< The offset of the metadata from the start of the file
+    u32 metaSize;          //!< The size of the metadata
 
     Header(const std::function<void(size_t offset, size_t size, void* buffer)>& readFunction);
 
@@ -116,14 +118,20 @@ namespace zra {
      * @return A Buffer containing the seek-table from the header
      */
     Buffer GetSeekTable() const;
+
+    /**
+     * @return A Buffer containing the seek-table from the header
+     */
+    Buffer GetMetadata() const;
   };
 
   /**
    * @param inputSize The size of the input being compressed
    * @param frameSize The size of a single frame
+   * @param metaSize The size of the metadata
    * @return The worst-case size of the compressed output
    */
-  ZRA_EXPORT size_t GetOutputBufferSize(size_t inputSize, u32 frameSize);
+  ZRA_EXPORT size_t GetOutputBufferSize(size_t inputSize, u32 frameSize, u32 metaSize = 0);
 
   /**
    * @brief This compresses the supplied buffer with specified parameters in-memory into a BufferView
@@ -132,9 +140,10 @@ namespace zra {
    * @param compressionLevel The ZSTD compression level to compress the buffer with
    * @param frameSize The size of a single frame which can be decompressed individually (This does not always equate to a single ZSTD frame)
    * @param checksum If ZSTD should add a checksum over all blocks of data that'll be compressed
+   * @param meta A BufferView with the metadata to insert into the file
    * @return The size of the data after being compressed
    */
-  ZRA_EXPORT size_t CompressBuffer(const BufferView& input, const BufferView& output, i8 compressionLevel = 0, u32 frameSize = 16384, bool checksum = false);
+  ZRA_EXPORT size_t CompressBuffer(const BufferView& input, const BufferView& output, i8 compressionLevel = 0, u32 frameSize = 16384, bool checksum = false, const BufferView& meta = {});
 
   /**
    * @brief This compresses the supplied buffer with specified parameters in-memory into a Buffer
@@ -142,9 +151,10 @@ namespace zra {
    * @param compressionLevel The ZSTD compression level to compress the buffer with
    * @param frameSize The size of a single frame which can be decompressed individually (This does not always equate to a single ZSTD frame)
    * @param checksum If ZSTD should add a checksum over all blocks of data that'll be compressed
+   * @param meta A BufferView with the metadata to insert into the file
    * @return A Buffer with the compressed contents of the input buffer
    */
-  ZRA_EXPORT Buffer CompressBuffer(const BufferView& buffer, i8 compressionLevel = 0, u32 frameSize = 16384, bool checksum = false);
+  ZRA_EXPORT Buffer CompressBuffer(const BufferView& buffer, i8 compressionLevel = 0, u32 frameSize = 16384, bool checksum = false, const BufferView& meta = {});
 
   /**
    * @brief This decompresses the supplied compressed buffer in-memory into a BufferView
@@ -199,8 +209,9 @@ namespace zra {
      * @param compressionLevel The level of ZSTD compression to use
      * @param checksum If ZSTD should add a checksum over all blocks of data that'll be compressed
      * @param frameSize The size of a single frame which can be decompressed individually
+     * @param meta A BufferView with the metadata to insert into the file
      */
-    Compressor(size_t size, i8 compressionLevel = 0, u32 frameSize = 16384, bool checksum = false);
+    Compressor(size_t size, i8 compressionLevel = 0, u32 frameSize = 16384, bool checksum = false, const BufferView& meta = {});
 
     /**
      * @param inputSize The size of the input being compressed
@@ -246,14 +257,12 @@ namespace zra {
    private:
     std::shared_ptr<ZDCtx> ctx;                               //!< A shared pointer to the incomplete ZDCtx class
     std::function<void(size_t, size_t, void*)> readFunction;  //!< This function is used to read data from the compressed file while supplying the offset and the size, the output should be into the buffer
-
    public:
-    Header header;                                            //!< The Header of the file/buffer that is being decompressed
-
+    Header header;  //!< The Header of the file/buffer that is being decompressed
    private:
-    Buffer seekTable;                                         //!< The seek-table is required for random-access throughout the file
-    Buffer cache;                                             //!< A Buffer to read compressed data from the file into, it is reused to prevent constant reallocation
-    size_t maxCacheSize;                                      //!< The maximum size of the cache, if the uncompressed segment read goes above this then it'll be read into it's own vector
+    Buffer seekTable;     //!< The seek-table is required for random-access throughout the file
+    Buffer cache;         //!< A Buffer to read compressed data from the file into, it is reused to prevent constant reallocation
+    size_t maxCacheSize;  //!< The maximum size of the cache, if the uncompressed segment read goes above this then it'll be read into it's own vector
 
    public:
     Decompressor(const std::function<void(size_t offset, size_t size, void* buffer)>& readFunction, size_t maxCacheSize = 1024 * 1024 * 20);
@@ -282,10 +291,12 @@ namespace zra {
   class ZRA_EXPORT FullDecompressor {
    private:
     std::shared_ptr<ZDCtx> ctx;  //!< A shared pointer to the incomplete ZDCtx class
-    Header header;               //!< The Header of the file/buffer that is being decompressed
-    Buffer seekTable;            //!< The seek-table is required for random-access throughout the file
-    Buffer frame;                //!< A Buffer containing a partial frame from decompressing
-    Entry* entry;                //!< The current frame entry in the seek table
+   public:
+    Header header;  //!< The Header of the file/buffer that is being decompressed
+   private:
+    Buffer seekTable;  //!< The seek-table is required for random-access throughout the file
+    Buffer frame;      //!< A Buffer containing a partial frame from decompressing
+    Entry* entry;      //!< The current frame entry in the seek table
 
    public:
     FullDecompressor(const Header& header);
