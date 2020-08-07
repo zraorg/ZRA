@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright © 2020 ZRA Contributors (https://github.com/zraorg)
+
 #ifndef ZRA_ZRA_H
 #define ZRA_ZRA_H
 
@@ -94,6 +97,11 @@ ZRA_EXPORT size_t ZraGetHeaderSizeWithHeader(ZraHeader* header);
  * @return The size of the original uncompressed data in bytes
  */
 ZRA_EXPORT size_t ZraGetUncompressedSizeWithHeader(ZraHeader* header);
+
+/**
+ * @return The size of a single frame in bytes
+ */
+ZRA_EXPORT size_t ZraGetFrameSizeWithHeader(ZraHeader* header);
 
 // ------In-Memory Functions------
 
@@ -213,6 +221,34 @@ ZRA_EXPORT ZraHeader* ZraGetHeaderWithDecompressor(ZraDecompressor* decompressor
  * @param outputBuffer A pointer to the buffer to write the decompressed output into (Size should be adequate)
  */
 ZRA_EXPORT ZraStatus ZraDecompressWithDecompressor(ZraDecompressor* decompressor, size_t offset, size_t size, void* outputBuffer);
+
+// ------Full Decompressor------
+struct ZraFullDecompressor;
+
+/**
+ * @brief Creates a ZraFullDecompressor object with the specified parameters
+ * @param decompressor A pointer to a pointer to store the ZraFullDecompressor pointer in
+ * @param readFunction This function is used to read data from the compressed file while supplying the offset and the size, the output should be into the buffer
+ */
+ZRA_EXPORT ZraStatus ZraCreateFullDecompressor(ZraFullDecompressor** decompressor, void(readFunction)(size_t offset, size_t size, void* buffer));
+
+/**
+ * @brief Deletes a ZraFullDecompressor object
+ */
+ZRA_EXPORT void ZraDeleteFullDecompressor(ZraFullDecompressor* decompressor);
+
+/**
+ * @return The header object created by the decompressor internally, so that it won't have to be constructed redundantly
+ * @note The lifetime of the object is directly tied to that of the FullDecompressor, do not manually delete it
+ */
+ZRA_EXPORT ZraHeader* ZraGetHeaderWithFullDecompressor(ZraFullDecompressor* decompressor);
+
+/**
+ * @brief Decompresses as much data as possible into the supplied output buffer
+ * @param outputBuffer A pointer to the buffer to write the decompressed output into
+ * @param outputCapacity The size of the output buffer, it should be at least ZraGetFrameSizeWithHeader bytes
+ */
+ZRA_EXPORT ZraStatus ZraDecompressWithFullDecompressor(ZraFullDecompressor* decompressor, void* outputBuffer, size_t outputCapacity);
 
 #ifdef __cplusplus
 }

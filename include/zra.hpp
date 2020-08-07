@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright © 2020 ZRA Contributors (https://github.com/zraorg)
+
 #pragma once
 
 #include <functional>
@@ -28,7 +31,7 @@ namespace zra {
   using Buffer = std::vector<u8>;  //!< Byte-array for buffers
 
   /**
-   * @brief This class provides a view into a buffer with it's address and size
+   * @brief A view into a buffer with it's address and size
    */
   struct BufferView {
     u8* data{nullptr};  //!< A pointer to the data within the buffer
@@ -64,9 +67,6 @@ namespace zra {
     InputFrameSizeMismatch,  //!< The input size is not divisible by the frame size nor is it the final frame
   };
 
-  /**
-   * @brief This class is used to deliver an exception when it occurs
-   */
   struct ZRA_EXPORT Exception : std::exception {
     StatusCode code;  //!< The error code associated with this exception
     int zstdCode;     //!< The error code issued by ZSTD, if any
@@ -91,7 +91,7 @@ namespace zra {
   ZRA_EXPORT u16 GetVersion();
 
   /**
-   * @brief This structure holds the header of a ZRA file
+   * @brief A version-agnostic interface to a ZRA file's header
    */
   class ZRA_EXPORT Header {
    private:
@@ -134,7 +134,7 @@ namespace zra {
   ZRA_EXPORT size_t GetOutputBufferSize(size_t inputSize, u32 frameSize, u32 metaSize = 0);
 
   /**
-   * @brief This compresses the supplied buffer with specified parameters in-memory into a BufferView
+   * @brief Compresses the supplied buffer with specified parameters in-memory into a BufferView
    * @param input A BufferView with the uncompressed source data
    * @param output A BufferView to write the compressed contents into (Can be empty to retrieve size)
    * @param compressionLevel The ZSTD compression level to compress the buffer with
@@ -146,7 +146,7 @@ namespace zra {
   ZRA_EXPORT size_t CompressBuffer(const BufferView& input, const BufferView& output, i8 compressionLevel = 0, u32 frameSize = 16384, bool checksum = false, const BufferView& meta = {});
 
   /**
-   * @brief This compresses the supplied buffer with specified parameters in-memory into a Buffer
+   * @brief Compresses the supplied buffer with specified parameters in-memory into a Buffer
    * @param buffer A BufferView with the uncompressed source data
    * @param compressionLevel The ZSTD compression level to compress the buffer with
    * @param frameSize The size of a single frame which can be decompressed individually (This does not always equate to a single ZSTD frame)
@@ -157,21 +157,21 @@ namespace zra {
   ZRA_EXPORT Buffer CompressBuffer(const BufferView& buffer, i8 compressionLevel = 0, u32 frameSize = 16384, bool checksum = false, const BufferView& meta = {});
 
   /**
-   * @brief This decompresses the supplied compressed buffer in-memory into a BufferView
+   * @brief Decompresses the supplied compressed buffer in-memory into a BufferView
    * @param input A BufferView with the compressed data
    * @param output A BufferView to write the uncompressed contents into (Size should be at least Header::UncompressedSize bytes)
    */
   ZRA_EXPORT void DecompressBuffer(const BufferView& input, const BufferView& output);
 
   /**
-   * @brief This decompresses the supplied compressed buffer in-memory into a Buffer
+   * @brief Decompresses the supplied compressed buffer in-memory into a Buffer
    * @param buffer A BufferView with the compressed data
    * @return A BufferView with the corresponding decompressed contents
    */
   ZRA_EXPORT Buffer DecompressBuffer(const BufferView& buffer);
 
   /**
-   * @brief This decompresses a specific region of the supplied compressed buffer in-memory into a BufferView
+   * @brief Decompresses a specific region of the supplied compressed buffer in-memory into a BufferView
    * @param input A BufferView with the compressed data
    * @param output A BufferView to write the uncompressed contents into (Size should be adequate)
    * @param offset The corresponding offset in the uncompressed buffer
@@ -180,7 +180,7 @@ namespace zra {
   ZRA_EXPORT void DecompressRA(const BufferView& input, const BufferView& output, size_t offset, size_t size);
 
   /**
-   * @brief This decompresses a specific region of the supplied compressed buffer in-memory into a Buffer
+   * @brief Decompresses a specific region of the supplied compressed buffer in-memory into a Buffer
    * @param buffer A BufferView with the compressed data
    * @param offset The corresponding offset in the uncompressed buffer
    * @param size The amount of bytes to decompress from the offset
@@ -221,7 +221,7 @@ namespace zra {
     size_t GetOutputBufferSize(size_t inputSize) const;
 
     /**
-     * @brief This compresses a partial stream of contiguous data into a BufferView
+     * @brief Compresses a partial stream of contiguous data into a BufferView
      * @param input The BufferView containing the uncompressed contents, it's size must be divisible by the frame size unless it's the last frame
      * @param output The output BufferView which can be reused from previous iterations, compressed data will be written in here (Size should be at least GetOutputBufferSize bytes long)
      * @return The size of the data after being compressed
@@ -229,7 +229,7 @@ namespace zra {
     size_t Compress(const BufferView& input, const BufferView& output);
 
     /**
-     * @brief This compresses a partial stream of contiguous data into a Buffer
+     * @brief Compresses a partial stream of contiguous data into a Buffer
      * @param input The Buffer containing the uncompressed contents, it's size must be divisible by the frame size unless it's the last frame
      * @param output The output Buffer which can be reused from previous iterations, compressed data will be written in here
      */
@@ -268,7 +268,7 @@ namespace zra {
     Decompressor(const std::function<void(size_t offset, size_t size, void* buffer)>& readFunction, size_t maxCacheSize = 1024 * 1024 * 20);
 
     /**
-     * @brief This decompresses data from a slice of corresponding to the original uncompressed file into a BufferView
+     * @brief Decompresses data from a slice of corresponding to the original uncompressed file into a BufferView
      * @param offset The offset of the data to decompress in the original file
      * @param size The size of the data to decompress in the original file
      * @param output The output BufferView which can be reused from previous calls, uncompressed data will be written in here
@@ -276,36 +276,45 @@ namespace zra {
     void Decompress(size_t offset, size_t size, const BufferView& output = {});
 
     /**
-     * @brief This decompresses data from a slice of corresponding to the original uncompressed file into a Buffer
+     * @brief Decompresses data from a slice of corresponding to the original uncompressed file into a Buffer
      * @param offset The offset of the data to decompress in the original file
      * @param size The size of the data to decompress in the original file
      * @param output The output Buffer which can be reused from previous calls, uncompressed data will be written in here
      */
     void Decompress(size_t offset, size_t size, Buffer& output);
+
+    /**
+     * @brief Decompresses data from a slice of corresponding to the original uncompressed file into a created Buffer
+     * @param offset The offset of the data to decompress in the original file
+     * @param size The size of the data to decompress in the original file
+     * @return The output Buffer with the uncompressed data
+     */
+    Buffer Decompress(size_t offset, size_t size);
   };
 
   /**
    * @brief This class is used to implement streaming ZRA decompression which is optimized for decompressing the entire buffer
-   * @note This isn't exposed in the C-API or any of the bindings to it due to the normal decompressor being adequate for the most part
    */
   class ZRA_EXPORT FullDecompressor {
    private:
     std::shared_ptr<ZDCtx> ctx;  //!< A shared pointer to the incomplete ZDCtx class
+    std::function<void(size_t, size_t, void*)> readFunction;  //!< This function is used to read data from the compressed file while supplying the offset and the size, the output should be into the buffer
    public:
     Header header;  //!< The Header of the file/buffer that is being decompressed
    private:
     Buffer seekTable;  //!< The seek-table is required for random-access throughout the file
-    Buffer frame;      //!< A Buffer containing a partial frame from decompressing
+    Buffer cache;      //!< A Buffer to read compressed data from the file into, it is reused to prevent constant reallocation
     Entry* entry;      //!< The current frame entry in the seek table
 
    public:
-    FullDecompressor(const Header& header);
+    FullDecompressor(const std::function<void(size_t offset, size_t size, void* buffer)>& readFunction);
 
     /**
-     * @brief This decompresses a partial stream of data (All chunks supplied to this are expected to be contiguous)
-     * @param input The Buffer containing the compressed contents, the data here might be modified during decompression
-     * @param output The output Buffer which can be reused from previous iterations, uncompressed data will be written in here
+     * @brief Decompresses as much data as possible into the supplied output buffer
+     * @param output The output Buffer which can be reused from previous iterations, it's size should be at least enough to hold one frame and preferably a multiple of the frame size
+     * @return The amount of data actually decompressed, it can be less than the size of the buffer
+     * @note This function will return 0 once there is nothing more to decompress
      */
-    void Decompress(Buffer& input, Buffer& output);
+    size_t Decompress(const BufferView& output);
   };
 }  // namespace zra

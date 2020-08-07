@@ -1,10 +1,13 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright © 2020 ZRA Contributors (https://github.com/zraorg)
+
 #include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <fstream>
 #include <iostream>
 
-#include "include/zra.hpp"
+#include "zra.hpp"
 
 void compressionBenchmark(const std::function<zra::Buffer()>& compressFunction, const std::function<zra::Buffer(const zra::BufferView&)>& decompressFunction, const std::string& name, size_t originalSize) {
   auto start = std::chrono::high_resolution_clock::now();
@@ -175,13 +178,10 @@ int main(int argc, char* argv[]) {
     oStream.write(reinterpret_cast<char*>(output.data()), output.size());
   } else if (type == "sd") {
     auto iFile = GetIFile(argv[2]);
-
-    zra::Header header([&iFile](size_t offset, size_t size, void* output) {
+    zra::FullDecompressor decompressor([&iFile](size_t offset, size_t size, void* output) {
       iFile.stream.seekg(offset);
       iFile.stream.read(static_cast<char*>(output), size);
     });
-
-    zra::FullDecompressor decompressor(header);
 
     fileName = std::string(argv[2]) + ".sd";
     std::ofstream oStream(fileName, std::ios::binary | std::ios::out | std::ios::trunc);
@@ -190,27 +190,17 @@ int main(int argc, char* argv[]) {
     if (argc > 3)
       bufferSize = std::stoi(argv[3]) * 1'000'000;
 
-    zra::Buffer input(bufferSize);
+    fileSize = decompressor.header.uncompressedSize;
+    auto remaining = fileSize;
+    std::cout << std::dec << "0% (0/" << remaining << " bytes)" << std::flush;
 
-    auto size = iFile.size - header.size;
-    std::cout << std::dec << "0% (0/" << size << " bytes)" << std::flush;
-
-    zra::Buffer data;
-    size_t offset{}, uncompressedSize{};
-    while (offset < size) {
-      auto read = iFile.stream.read(reinterpret_cast<char*>(input.data()), input.size()).gcount();
-      input.resize(read);
-      offset += read;
-
-      decompressor.Decompress(input, data);
-      uncompressedSize += data.size();
-
-      oStream.write(reinterpret_cast<char*>(data.data()), data.size());
-
-      std::cout << "\r" << std::dec << (offset * 100) / size << "% (" << offset << "/" << size << " bytes)" << std::flush;
+    zra::Buffer data(bufferSize);
+    while (remaining) {
+      auto amount = decompressor.Decompress(data);
+      oStream.write(reinterpret_cast<char*>(data.data()), amount);
+      std::cout << "\r" << std::dec << ((fileSize - remaining) * 100) / remaining << "% (" << fileSize - remaining << "/" << remaining << " bytes)" << std::flush;
+      remaining -= amount;
     }
-
-    fileSize = uncompressedSize;
 
     std::cout << std::endl;
   } else if (type == "b") {
@@ -249,23 +239,17 @@ int main(int argc, char* argv[]) {
       std::memcpy(output.data(), header.data(), header.size());
 
       return output; }, [bufferSize](const zra::BufferView& view) {
-      zra::Header header(view);
-      auto size = view.size - header.size;
+      zra::FullDecompressor decompressor([&view](size_t offset, size_t readSize, void* outBuffer) {
+        memcpy(outBuffer, view.data + offset, readSize);
+      });
 
-      zra::FullDecompressor decompressor(header);
-
-      zra::Buffer input(bufferSize);
-
-      zra::Buffer data, output;
-      size_t offset{header.size};
-      while (offset < size) {
-        auto read = std::min(view.size - offset, input.size());
-        std::memcpy(input.data(), view.data + offset, read);
-        input.resize(read);
-        offset += read;
-
-        decompressor.Decompress(input, data);
-        output.insert(output.end(), data.begin(), data.end());
+      zra::Buffer data(bufferSize);
+      zra::Buffer output(decompressor.header.uncompressedSize);
+      size_t remaining{decompressor.header.uncompressedSize};
+      while (remaining) {
+        auto amount = decompressor.Decompress(data);
+        std::memcpy(output.data() + (output.size() - remaining), data.data(), amount);
+        remaining -= amount;
       }
 
       return output; }, "Streaming", input.size());

@@ -53,6 +53,6 @@ GENERATE_EXPORT_HEADER(zra EXPORT_FILE_NAME ${CMAKE_BINARY_DIR}/exports/zra_expo
 option(BUILD_ZRATOOL "If ZraTool is build or not" FALSE)
 
 if (BUILD_ZRATOOL)
-    add_executable(ZraTool zratool.cpp)
+    add_executable(ZraTool programs/zratool.cpp)
     target_link_libraries(ZraTool zra)
 endif ()
