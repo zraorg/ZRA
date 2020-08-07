@@ -273,7 +273,7 @@ namespace zra {
      * @param size The size of the data to decompress in the original file
      * @param output The output BufferView which can be reused from previous calls, uncompressed data will be written in here
      */
-    void Decompress(size_t offset, size_t size, const BufferView& output = {});
+    void Decompress(size_t offset, size_t size, const BufferView& output);
 
     /**
      * @brief Decompresses data from a slice of corresponding to the original uncompressed file into a Buffer

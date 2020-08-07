@@ -12,6 +12,7 @@
 #include <cstring>
 #include <optional>
 #include <stdexcept>
+#include <iostream>
 
 #include "zra.hpp"
 
@@ -362,8 +363,7 @@ namespace zra {
   Decompressor::Decompressor(const std::function<void(size_t, size_t, void*)>& readFunction, size_t maxCacheSize) : ctx(std::make_shared<ZDCtx>()), readFunction(readFunction), header(readFunction), seekTable(header.GetSeekTable()), maxCacheSize(maxCacheSize) {}
 
   void Decompressor::Decompress(size_t offset, size_t size, const BufferView& output) {
-    static size_t iter = 0;
-    if (offset + size >= header.uncompressedSize)
+    if (offset + size > header.uncompressedSize)
       throw Exception(StatusCode::OutOfBoundsAccess);
     if (output.size < size)
       throw Exception(StatusCode::OutputBufferTooSmall);
@@ -372,9 +372,9 @@ namespace zra {
     auto frameSize = std::lldiv(static_cast<size_t>(frameOffset.rem + size), header.frameSize);
     auto firstFrame = reinterpret_cast<const Entry*>(seekTable.data()) + frameOffset.quot;
     auto lastFrame = firstFrame + (frameSize.quot + (frameSize.rem ? 1 : 0));
+
+    auto initialOffset = *firstFrame;
     size_t compressedSize{*lastFrame - *firstFrame};
-    if(iter)
-      throw Exception(StatusCode::OutputBufferTooSmall);
 
     std::optional<Buffer> inputBuffer;
     if (compressedSize > maxCacheSize)
@@ -382,7 +382,7 @@ namespace zra {
 
     auto& input = inputBuffer ? *inputBuffer : cache;
     input.resize(compressedSize);
-    readFunction(header.size, compressedSize, input.data());
+    readFunction(header.size + *firstFrame, compressedSize, input.data());
 
     std::optional<Buffer> frameBuffer;
     if (frameOffset.rem || frameSize.rem)
@@ -390,7 +390,7 @@ namespace zra {
 
     size_t outputOffset{};
     if (frameOffset.rem) {
-      ZStdCheck(ZSTD_decompressDCtx(*ctx, frameBuffer->data(), frameBuffer->size(), input.data() + *firstFrame, *(firstFrame + 1) - *firstFrame));
+      ZStdCheck(ZSTD_decompressDCtx(*ctx, frameBuffer->data(), frameBuffer->size(), input.data(), *(firstFrame + 1) - *firstFrame));
       auto minSize = std::min(size, static_cast<size_t>(static_cast<size_t>(header.frameSize) - frameOffset.rem));
       std::memcpy(output.data, frameBuffer->data() + frameOffset.rem, minSize);
       outputOffset += minSize;
@@ -399,14 +399,13 @@ namespace zra {
 
     if (outputOffset < size) {
       compressedSize = *(frameSize.rem ? lastFrame - 1 : lastFrame) - *firstFrame;
-      outputOffset += ZStdCheck(ZSTD_decompressDCtx(*ctx, output.data + outputOffset, output.size - outputOffset, input.data() + *firstFrame, compressedSize));
+      outputOffset += ZStdCheck(ZSTD_decompressDCtx(*ctx, output.data + outputOffset, output.size - outputOffset, input.data() + (*firstFrame - initialOffset), compressedSize));
     }
 
     if (outputOffset < size && frameSize.rem) {
-      ZStdCheck(ZSTD_decompressDCtx(*ctx, frameBuffer->data(), frameBuffer->size(), input.data() + *(lastFrame - 1), *lastFrame - *(lastFrame - 1)));
+      ZStdCheck(ZSTD_decompressDCtx(*ctx, frameBuffer->data(), frameBuffer->size(), input.data() + (*(lastFrame - 1) - initialOffset), *lastFrame - *(lastFrame - 1)));
       std::memcpy(output.data + outputOffset, frameBuffer->data(), size - outputOffset);
     }
-    iter++;
   }
 
   void Decompressor::Decompress(size_t offset, size_t size, Buffer& output) {

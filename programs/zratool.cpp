@@ -88,14 +88,21 @@ IFile GetIFile(const std::string& name) {
   return IFile{std::move(iStream), static_cast<size_t>(size)};
 }
 
+inline std::string RemoveExtension(std::string name) {
+  auto position = name.find_last_of('.');
+  if (position != std::string::npos && name.substr(position) == ".zra")
+    return name.substr(0, position);
+  return name;
+}
+
 int main(int argc, char* argv[]) {
   if (argc < 3) {
     std::cout << argv[0] << " {mode} {file} ...\n"
-                            "c  {file} {compression level = 3} {frame size = 16384} - In-memory Compression (Output will be the same as the file argument with \".c\" appended to the end)\n"
-                            "sc {file} {compression level = 3} {frame size = 16384} {stream buffer size = 10MB} - Streaming Compression (Output will be the same as the file argument with \".sc\" appended to the end)\n"
-                            "d  {file} - In-memory Decompression (Output will be the same as the file argument with \".d\" appended to the end) \n"
-                            "sd {file} {stream buffer size = 10MB} - Streaming Decompression (Output will be the same as the file argument with \".sd\" appended to the end) \n"
-                            "b  {file} {compression level = 3} {frame size = 16384} {stream buffer size = 10MB} {offset = 0x1000} {size = 0x10000} - Benchmark"
+                            "c {file} {compression level = 3} {frame size = 16384} {stream buffer size = 10MB} - Streaming Compression\n"
+                            "imc  {file} {compression level = 3} {frame size = 16384} - In-memory Compression\n"
+                            "d {file} {stream buffer size = 10MB} - Streaming Decompression\n"
+                            "imd  {file} - In-memory Decompression\n"
+                            "b  {file} {compression level = 3} {frame size = 16384} {stream buffer size = 10MB} {offset = 0x1000} {size = 0x10000} - Benchmark (Memory Intensive)"
               << std::endl;
     return 0;
   }
@@ -112,25 +119,9 @@ int main(int argc, char* argv[]) {
     if (argc > 4)
       frameSize = std::stoi(argv[4]);
 
-    zra::Buffer input = ReadFile(argv[2]);
-    zra::Buffer output = zra::CompressBuffer(input, compressionLevel, frameSize);
-
-    fileName = std::string(argv[2]) + ".c";
-    fileSize = output.size();
-
-    std::ofstream oStream(fileName, std::ios::binary | std::ios::out | std::ios::trunc);
-    oStream.write(reinterpret_cast<char*>(output.data()), output.size());
-  } else if (type == "sc") {
-    int compressionLevel{0};
-    if (argc > 3)
-      compressionLevel = std::stoi(argv[3]);
-    zra::u32 frameSize = 16384;
-    if (argc > 4)
-      frameSize = std::stoi(argv[4]);
-
     auto iFile = GetIFile(argv[2]);
 
-    fileName = std::string(argv[2]) + ".sc";
+    fileName = std::string(argv[2]) + ".zra";
     std::ofstream oStream(fileName, std::ios::binary | std::ios::out | std::ios::trunc);
 
     zra::Compressor compressor(iFile.size, compressionLevel, frameSize);
@@ -167,23 +158,30 @@ int main(int argc, char* argv[]) {
     fileSize = compressedSize;
 
     std::cout << std::endl;
-  } else if (type == "d") {
-    zra::Buffer input = ReadFile(argv[2]);
-    zra::Buffer output = zra::DecompressBuffer(input);
+  } else if (type == "imc") {
+    int compressionLevel{0};
+    if (argc > 3)
+      compressionLevel = std::stoi(argv[3]);
+    zra::u32 frameSize = 16384;
+    if (argc > 4)
+      frameSize = std::stoi(argv[4]);
 
-    fileName = std::string(argv[2]) + ".d";
+    zra::Buffer input = ReadFile(argv[2]);
+    zra::Buffer output = zra::CompressBuffer(input, compressionLevel, frameSize);
+
+    fileName = std::string(argv[2]) + ".zra";
     fileSize = output.size();
 
     std::ofstream oStream(fileName, std::ios::binary | std::ios::out | std::ios::trunc);
     oStream.write(reinterpret_cast<char*>(output.data()), output.size());
-  } else if (type == "sd") {
+  } else if (type == "d") {
     auto iFile = GetIFile(argv[2]);
     zra::FullDecompressor decompressor([&iFile](size_t offset, size_t size, void* output) {
       iFile.stream.seekg(offset);
       iFile.stream.read(static_cast<char*>(output), size);
     });
 
-    fileName = std::string(argv[2]) + ".sd";
+    fileName = RemoveExtension(argv[2]);
     std::ofstream oStream(fileName, std::ios::binary | std::ios::out | std::ios::trunc);
 
     size_t bufferSize = 10'000'000;
@@ -203,6 +201,15 @@ int main(int argc, char* argv[]) {
     }
 
     std::cout << std::endl;
+  } else if (type == "imd") {
+    zra::Buffer input = ReadFile(argv[2]);
+    zra::Buffer output = zra::DecompressBuffer(input);
+
+    fileName = RemoveExtension(argv[2]);
+    fileSize = output.size();
+
+    std::ofstream oStream(fileName, std::ios::binary | std::ios::out | std::ios::trunc);
+    oStream.write(reinterpret_cast<char*>(output.data()), output.size());
   } else if (type == "b") {
     int compressionLevel{0};
     if (argc > 3)
