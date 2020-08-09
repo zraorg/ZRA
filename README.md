@@ -4,7 +4,7 @@
 
 ***
 ### Format
-#### How is this done ?
+#### How is this done?
 ZSTD has the concept of a [Frame](https://github.com/facebook/zstd/blob/dev/doc/zstd_compression_format.md#frames) which can be decompressed independently from the rest of the file. A ZSTD archive is made of multiple concatenated frames which are decompressed one after another.  
 
 We exploit that fact to break the file into uniformly sized frames (`Frame Size`) and creating a seek-table which contains the offset of each frame within in the file which can be indexed by simply dividing the offset by the frame size.  
@@ -100,4 +100,4 @@ We store data that's required for decompression or other functionality inside an
   ```
 ***
 ### License
-We use a simple 3-clause BSD license located at [LICENSE](LICENSE.md) for easy integration into projects while being compatible with the libraries we utilize
+We use a simple **3-clause BSD** license located at [LICENSE](LICENSE.md) for easy integration into projects while being compatible with the libraries we utilize

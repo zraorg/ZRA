@@ -103,6 +103,16 @@ ZRA_EXPORT size_t ZraGetUncompressedSizeWithHeader(ZraHeader* header);
  */
 ZRA_EXPORT size_t ZraGetFrameSizeWithHeader(ZraHeader* header);
 
+/*
+ * @return The size of the metadata section in bytes
+ */
+ZRA_EXPORT size_t ZraGetMetadataSize(ZraHeader* header);
+
+/**
+ * @param buffer The buffer into which the metadata section is written into, should be at least ZraGetMetadataSize bytes long
+ */
+ZRA_EXPORT void ZraGetMetadata(ZraHeader* header, void* buffer);
+
 // ------In-Memory Functions------
 
 /**
@@ -230,7 +240,7 @@ struct ZraFullDecompressor;
  * @param decompressor A pointer to a pointer to store the ZraFullDecompressor pointer in
  * @param readFunction This function is used to read data from the compressed file while supplying the offset and the size, the output should be into the buffer
  */
-ZRA_EXPORT ZraStatus ZraCreateFullDecompressor(ZraFullDecompressor** decompressor, void(readFunction)(size_t offset, size_t size, void* buffer));
+ZRA_EXPORT ZraStatus ZraCreateFullDecompressor(ZraFullDecompressor** decompressor, void(readFunction)(size_t offset, size_t size, void* buffer), size_t maxCacheSize);
 
 /**
  * @brief Deletes a ZraFullDecompressor object
@@ -247,8 +257,9 @@ ZRA_EXPORT ZraHeader* ZraGetHeaderWithFullDecompressor(ZraFullDecompressor* deco
  * @brief Decompresses as much data as possible into the supplied output buffer
  * @param outputBuffer A pointer to the buffer to write the decompressed output into
  * @param outputCapacity The size of the output buffer, it should be at least ZraGetFrameSizeWithHeader bytes
+ * @param outputSize The size of the uncompressed data that has been written into the buffer, this will be 0 at the end of compression
  */
-ZRA_EXPORT ZraStatus ZraDecompressWithFullDecompressor(ZraFullDecompressor* decompressor, void* outputBuffer, size_t outputCapacity);
+ZRA_EXPORT ZraStatus ZraDecompressWithFullDecompressor(ZraFullDecompressor* decompressor, void* outputBuffer, size_t outputCapacity, size_t* outputSize);
 
 #ifdef __cplusplus
 }

@@ -43,7 +43,7 @@ namespace zra {
      * @param data The pointer to the data in the buffer
      * @param size The size of the buffer in bytes
      */
-    constexpr inline BufferView(u8* data, size_t size) : data(data), size(size) {}
+    constexpr inline BufferView(void* data, size_t size) : data(static_cast<u8*>(data)), size(size) {}
 
     /**
      * @param buffer The Buffer object that this BufferView should represent
@@ -102,10 +102,10 @@ namespace zra {
     u32 size;              //!< The size of the entire header
     u64 uncompressedSize;  //!< The size of the original uncompressed file
     u32 frameSize;         //!< The size of the frames except for the final frame
-    u32 seekTableOffset;   //!< The offset of the seek table from the start of the file
-    u32 seekTableSize;     //!< The size of the seek table
     u32 metaOffset;        //!< The offset of the metadata from the start of the file
     u32 metaSize;          //!< The size of the metadata
+    u32 seekTableOffset;   //!< The offset of the seek table from the start of the file
+    u32 seekTableSize;     //!< The size of the seek table
 
     Header(const std::function<void(size_t offset, size_t size, void* buffer)>& readFunction);
 
@@ -115,14 +115,19 @@ namespace zra {
     Header(const BufferView& buffer);
 
     /**
-     * @return A Buffer containing the seek-table from the header
+     * @buffer A BufferView to insert the metadata section from the header into
      */
-    Buffer GetSeekTable() const;
+    void GetMetadata(const BufferView& buffer) const;
+
+    /**
+     * @return A Buffer containing the metadata section from the header
+     */
+    Buffer GetMetadata() const;
 
     /**
      * @return A Buffer containing the seek-table from the header
      */
-    Buffer GetMetadata() const;
+    Buffer GetSeekTable() const;
   };
 
   /**
