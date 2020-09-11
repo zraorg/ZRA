@@ -15,6 +15,7 @@
 #endif
 
 #ifndef __cplusplus
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #else
@@ -27,7 +28,7 @@ extern "C" {
 /**
  * @brief This enumerates all of the errors codes provided by ZRA
  */
-enum ZraStatusCode {
+typedef enum ZraStatusCode {
   Success,                 //!< The operation was successful
   ZStdError,               //!< An error was returned by ZStandard
   ZraVersionLow,           //!< The version of ZRA is too low to decompress this archive
@@ -37,15 +38,15 @@ enum ZraStatusCode {
   OutputBufferTooSmall,    //!< The output buffer is too small to contain the output (Supply null output buffer to get size)
   CompressedSizeTooLarge,  //!< The compressed output's size exceeds the maximum limit
   InputFrameSizeMismatch,  //!< The input size is not divisible by the frame size nor is it the final frame
-};
+} ZraStatusCode;
 
 /**
  * @brief This structure is used to hold the result of an operation
  */
-struct ZraStatus {
+typedef struct ZraStatus {
   ZraStatusCode zra;  //!< The status code from ZRA
   int zstd;           //!< The status code from ZSTD
-};
+} ZraStatus;
 
 // ------Library Functions------
 
@@ -61,7 +62,7 @@ ZRA_EXPORT uint16_t ZraGetVersion();
 ZRA_EXPORT const char* ZraGetErrorString(ZraStatus status);
 
 // ------Header------
-struct ZraHeader;
+typedef struct ZraHeader ZraHeader;
 
 /**
  * @brief Creates a ZraHeader object from a file
@@ -134,7 +135,7 @@ ZRA_EXPORT size_t ZraGetCompressedOutputBufferSize(size_t inputSize, size_t fram
  * @param metaBuffer A pointer to the metadata
  * @param metaSize The size of the metadata
  */
-ZRA_EXPORT ZraStatus ZraCompressBuffer(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t* outputSize, int8_t compressionLevel = 0, uint32_t frameSize = 16384, bool checksum = false, void* metaBuffer = nullptr, size_t metaSize = 0);
+ZRA_EXPORT ZraStatus ZraCompressBuffer(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t* outputSize, int8_t compressionLevel, uint32_t frameSize, bool checksum, void* metaBuffer, size_t metaSize);
 
 /**
  * @brief Decompresses the entirety of the supplied compressed buffer in-memory into the specified buffer
@@ -155,7 +156,7 @@ ZRA_EXPORT ZraStatus ZraDecompressBuffer(void* inputBuffer, size_t inputSize, vo
 ZRA_EXPORT ZraStatus ZraDecompressRA(void* inputBuffer, size_t inputSize, void* outputBuffer, size_t offset, size_t size);
 
 // ------Compressor------
-struct ZraCompressor;
+typedef struct ZraCompressor ZraCompressor;
 
 /**
  * @brief Creates a ZraCompressor object with the specified parameters
@@ -167,7 +168,7 @@ struct ZraCompressor;
  * @param metaBuffer A pointer to the metadata
  * @param metaSize The size of the metadata
  */
-ZRA_EXPORT ZraStatus ZraCreateCompressor(ZraCompressor** compressor, size_t size, int8_t compressionLevel = 0, uint32_t frameSize = 16384, bool checksum = false, void* metaBuffer = nullptr, size_t metaSize = 0);
+ZRA_EXPORT ZraStatus ZraCreateCompressor(ZraCompressor** compressor, size_t size, int8_t compressionLevel, uint32_t frameSize, bool checksum, void* metaBuffer, size_t metaSize);
 
 /**
  * @brief Deletes a ZraCompressor object
@@ -202,7 +203,7 @@ ZRA_EXPORT size_t ZraGetHeaderSizeWithCompressor(ZraCompressor* compressor);
 ZRA_EXPORT ZraStatus ZraGetHeaderWithCompressor(ZraCompressor* compressor, void* outputBuffer);
 
 // ------Decompressor------
-struct ZraDecompressor;
+typedef struct ZraDecompressor ZraDecompressor;
 
 /**
  * @brief Creates a ZraDecompressor object with the specified parameters
@@ -211,7 +212,7 @@ struct ZraDecompressor;
  * @param maxCacheSize The maximum size of the file cache, if the uncompressed segment read goes above this then it'll be read into it's own buffer
  * @note The cache is to preallocate buffers that are passed into readFunction, so that there isn't constant reallocation
  */
-ZRA_EXPORT ZraStatus ZraCreateDecompressor(ZraDecompressor** decompressor, void(readFunction)(size_t offset, size_t size, void* buffer), size_t maxCacheSize = 1024 * 1024 * 20);
+ZRA_EXPORT ZraStatus ZraCreateDecompressor(ZraDecompressor** decompressor, void(readFunction)(size_t offset, size_t size, void* buffer), size_t maxCacheSize);
 
 /**
  * @brief Deletes a ZraDecompressor object
@@ -233,7 +234,7 @@ ZRA_EXPORT ZraHeader* ZraGetHeaderWithDecompressor(ZraDecompressor* decompressor
 ZRA_EXPORT ZraStatus ZraDecompressWithDecompressor(ZraDecompressor* decompressor, size_t offset, size_t size, void* outputBuffer);
 
 // ------Full Decompressor------
-struct ZraFullDecompressor;
+typedef struct ZraFullDecompressor ZraFullDecompressor;
 
 /**
  * @brief Creates a ZraFullDecompressor object with the specified parameters
