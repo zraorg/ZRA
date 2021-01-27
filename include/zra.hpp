@@ -148,7 +148,7 @@ namespace zra {
    * @param meta A BufferView with the metadata to insert into the file
    * @return The size of the data after being compressed
    */
-  ZRA_EXPORT size_t CompressBuffer(const BufferView& input, const BufferView& output, i8 compressionLevel = 0, u32 frameSize = 16384, bool checksum = false, const BufferView& meta = {});
+  ZRA_EXPORT size_t CompressBuffer(const BufferView& input, const BufferView& output, i8 compressionLevel = 0, u32 frameSize = 16384, bool checksum = true, const BufferView& meta = {});
 
   /**
    * @brief Compresses the supplied buffer with specified parameters in-memory into a Buffer
@@ -159,7 +159,7 @@ namespace zra {
    * @param meta A BufferView with the metadata to insert into the file
    * @return A Buffer with the compressed contents of the input buffer
    */
-  ZRA_EXPORT Buffer CompressBuffer(const BufferView& buffer, i8 compressionLevel = 0, u32 frameSize = 16384, bool checksum = false, const BufferView& meta = {});
+  ZRA_EXPORT Buffer CompressBuffer(const BufferView& buffer, i8 compressionLevel = 0, u32 frameSize = 16384, bool checksum = true, const BufferView& meta = {});
 
   /**
    * @brief Decompresses the supplied compressed buffer in-memory into a BufferView
@@ -216,7 +216,7 @@ namespace zra {
      * @param frameSize The size of a single frame which can be decompressed individually
      * @param meta A BufferView with the metadata to insert into the file
      */
-    Compressor(size_t size, i8 compressionLevel = 0, u32 frameSize = 16384, bool checksum = false, const BufferView& meta = {});
+    Compressor(size_t size, i8 compressionLevel = 0, u32 frameSize = 16384, bool checksum = true, const BufferView& meta = {});
 
     /**
      * @param inputSize The size of the input being compressed
