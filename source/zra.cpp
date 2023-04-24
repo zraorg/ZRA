@@ -129,7 +129,7 @@ namespace zra {
       auto crc = CRC::Calculate(this, offsetof(FixedHeader, hash), CRC::CRC_32());
       auto hashOffset = offsetof(FixedHeader, hash) + sizeof(hash);
       crc = CRC::Calculate(reinterpret_cast<const u8*>(this) + hashOffset, sizeof(FixedHeader) - hashOffset, CRC::CRC_32(), crc);
-      return CRC::Calculate(rest, headerSize + offsetof(FixedHeader, headerSize) + sizeof(headerSize), CRC::CRC_32(), crc);
+      return CRC::Calculate(rest, headerSize - sizeof(FixedHeader) + offsetof(FixedHeader, headerSize) + sizeof(headerSize), CRC::CRC_32(), crc);
     }
   };
 
@@ -308,7 +308,8 @@ namespace zra {
     ZSTD_CCtx_setParameter(*ctx, ZSTD_cParameter::ZSTD_c_dictIDFlag, false);
 
     *reinterpret_cast<FixedHeader*>(header.data()) = FixedHeader(size, tableSize, frameSize, meta.size);
-    memcpy(header.data() + sizeof(FixedHeader), meta.data, meta.size);
+    if (meta.data) 
+      memcpy(header.data() + sizeof(FixedHeader), meta.data, meta.size);
   }
 
   size_t Compressor::GetOutputBufferSize(size_t inputSize) const {
