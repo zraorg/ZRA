@@ -1,8 +1,10 @@
 <p align="center"><b>ZStandard Random Access</b> (<code>ZRA</code>) allows random access inside an archive compressed using <a href="https://github.com/facebook/zstd">ZStandard</a><br>
-<img align="center" alt="C/C++ CI" src="https://github.com/PixelyIon/ZRA/workflows/C/C++%20CI/badge.svg"/>
 </p>
 
 ***
+
+<b>Note:</b> It isn't recommended to use this library in newer projects as it's no longer being actively maintained, feel free to submit PRs regarding any issues and they'll be merged when possible.
+
 ### Format
 #### How is this done?
 ZSTD has the concept of a [Frame](https://github.com/facebook/zstd/blob/dev/doc/zstd_compression_format.md#frames) which can be decompressed independently from the rest of the file. A ZSTD archive is made of multiple concatenated frames which are decompressed one after another.  
