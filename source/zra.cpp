@@ -308,7 +308,8 @@ namespace zra {
     ZSTD_CCtx_setParameter(*ctx, ZSTD_cParameter::ZSTD_c_dictIDFlag, false);
 
     *reinterpret_cast<FixedHeader*>(header.data()) = FixedHeader(size, tableSize, frameSize, meta.size);
-    if(meta.data) memcpy(header.data() + sizeof(FixedHeader), meta.data, meta.size);
+    if (meta.data) 
+      memcpy(header.data() + sizeof(FixedHeader), meta.data, meta.size);
   }
 
   size_t Compressor::GetOutputBufferSize(size_t inputSize) const {
